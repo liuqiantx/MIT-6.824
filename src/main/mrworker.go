@@ -4,7 +4,7 @@ package main
 // start a worker process, which is implemented
 // in ../mr/worker.go. typically there will be
 // multiple worker processes, talking to one master.
-// 多个 workers
+// 
 // go run mrworker.go wc.so
 //
 // Please do not change this file.
