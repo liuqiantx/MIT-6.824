@@ -13,7 +13,11 @@
     - [x] lec_3 GFS
     - [ ] lec_4 Primary-Backup Replication
   - [x] lab_1 task
-    - [ ]
+    - [x] design TaskInfo & Master struct
+    - [x] rpc module
+    - [x] Map func & Reduce func
+    - [x] Master workflow & Worker workflow
+    - [x] handle crash & timeout
 - [ ] Raft 截止日期: 2020.11.30
   - [ ] papers
     - [ ] In Search of an Understandable Consensus Algorithm (Extended Version)
