@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/rpc"
 	"hash/fnv"
+	"io/ioutil"
+	"encoding/json"
 )
 
 
@@ -80,27 +82,135 @@ func CallTaskDone(taskInfo *TaskInfo){
 
 func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 	// 1. 解析任务信息,获取要处理的文件名,文件索引(fi)
+	fileName := taskInfo.FileName
+	fileIndex := taskInfo.FileIndex
+	fmt.Println("start map task on %s", fileName)
+
 	// 2. 打开文件,读取文件内容
+	file, err := os.Open(fileName)
+	if err != nil {
+		log.Fatal("open file err : %v", err)
+	}
+	content, err := ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatal("read file err : %v", err)
+	}
+	file.Close()
+
 	// 3. 对文件内容执行 map_function
-	// 4. 获取任务信息中 NReduces 数量
-	// 5. 生成 N 个临时文件(临时保存 KeyValue), N 个编码文件(保存 KeyValue 的编码形式), N 个保存最终 KeyValue 的数据文件.(当 NReduce 为 10 时,文件名为 mr-fi-0 ~ mr-fi-9)
-	// 6. 迭代对 KeyValue 中的 Key 进行 hash % NReduce,所得结果即该 Key 所属的 PartIndex.(如,当 {"happy", 1} hash 后的结果为 8,则 {"happy", 1} 保存至文件名为 mr-fi-8 的文件中)
+	kva := mapf(fileName, string(content))
+
+	// 4. 获取任务信息中 NReduces 数量 和 fileIndex (决定文件数量及文件名)
+	nReduces := taskInfo.NReduces
+
+	// 5. 生成 N 个临时文件(临时保存 KeyValue), N 个编码文件(保存 KeyValue 的编码形式), 
+	// (当 NReduce 为 10 时,文件名为 mr-fi-0 ~ mr-fi-9)
+	tmpFiles := make([]*os.File, nReduces)
+	encoderFiles := make([]*json.Encoder, nReduces)
+
+	// 6. 迭代对 KeyValue 中的 Key 进行 hash % NReduce,所得结果即该 Key 所属的 PartIndex.
+	// (如,当 {"happy", 1} hash 后的结果为 8,则 {"happy", 1} 保存至文件名为 mr-fi-8 的文件中)
 	// 7. 将 KeyValue 保存至对应索引的临时文件中
-	// 8. 待所有临时文件都保存完毕后,再将文件结果保存至编码文件和最终文件
+	for _, kv := range kva {
+		storeKeyValue(kv , tmpFiles, encoderFiles)
+	}
+
+	// 8. 重命名文件，关闭文件
+	for i, file := range tmpFiles {
+		fileName := makeMapOutFileName(fileIndex, i)
+		err := os.Rename(file.Name(), fileName)
+		if err != nil {
+			log.Fatal("rename file err : %v", err)
+		}
+		file.Close()
+	}
+
 	// 9. 报告任务结束
+	call("Master.TaskDone", &TaskInfo)
+}
+
+func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
+	partIndex := ihash(kv.Key) % len(tmpFiles)
+	encoder := encoders[partIndex]
+
+	if encoder == nil {
+		tmpFile, err := ioutil.TemFile("", "tmp")
+		if err != nil {
+			log.Fatal("create temp file err : %v", err)
+		}
+		tmpFiles[partIndex] = tmpFile
+		encoder = json.NewEncoder(tmpFile)
+		encoders[partIndex] = encoder
+	}
+
+	err := encoder.Encode(kv)
+	if err != nil {
+		log.Fatal("json encode err : %v", err)
+	}
 }
 
 func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	// 1. 解析任务信息,获取处理的数据的 PartIndex,假设为 1
+	partIndex := taskInfo.PartIndex
+	nFiles := taskInfo.NInputFiles
+	fmt.Println("start reduce work on %v part", partIndex)
+
 	// 2. 初始化中间数据的存放 slice, 假设为 intermediate
+	intermediate := []KeyValue{}
+
 	// 3. 依次迭代 mapWorker 结果文件夹中的结果文件,当文件名的 PartIndex 部分为 1 时,进行下一步处理
 	// 4. 打开文件,读取文件内容
 	// 5. 将文件内容添加至 intermediate 中
+	for i:= 0; i < nFiles; i++ {
+		fileName := makeMapOutFileName(i, partIndex)
+		file, err := os.Open(fileName)
+		if err != nil {
+			log.Fatal("open file err : %v", err)
+		}
+		decoder := json.NewDecoder(file)
+		for {
+			var kv KeyValue
+			if err := decoder.Decode(&kv); err != nil {
+				break
+			}
+			intermediate = append(intermediate, kv)
+		}
+		file.Close()
+	}
+
 	// 6. 对 intermediate 中的数据进行排序
+	sort.Sort(ByKey(intermediate))
+
 	// 7. 按顺序读取 intermediate 中的 KeyValue，对于每一组同 Key 数据，执行依次 reduce function．
 	// 8. 将结果依次写入 mr-out-1 文件中
-	// 9. 待所有结果存储完毕，报告任务结束
+	outFileName := makeReduceOutFileName(partIndex)
+	outFile, err := os.Create(outFileName)
+	if err != nil {
+		log.Fatal("create file err : %v", err)
+	}
+
+	for i := 0; i < len(intermediate); {
+		key := intermediate[i].Key
+		j := i + 1
+		for j < len(intermediate) && intermediate[j].Key == Key {
+			j++
+		}
+
+		values := []string{}
+		for k := i; k < j; k++ {
+			values = append(values, intermediate[k].Value)
+		}
+		output := reducef(key, values)
+
+		fmt.Fprintf(outFile, "%v %v\n", key, output)
+	}
+	outFile.Close()
+
+	// 9. 待所有结果存储完毕，报告任务结束,修改临时文件的文件名
+	// TODO 
+	call("Master.TaskDone", &TaskInfo)
 }
+
 func makeMapOutFileName(fileIndex int, partIndex int) string {
 	return "mr-" + strconv.Itoa(fileIndex) + "-" + strconv.Itoa(partIndex)
 }

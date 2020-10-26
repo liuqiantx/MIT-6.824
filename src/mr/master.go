@@ -37,17 +37,56 @@ func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error{
 	m.lock()
 	defer m.unlock()
 	// 任务发送逻辑
-	// 待判断任务全部执行完毕后，m.isDone == True
+	if m.mapTaskQueuing.getLength() > 0 {
+		taskInfo := m.mapTaskQueuing.Pop()
+		taskInfo.getStartTime()
+		m.mapTaskRunning.Push(taskInfo)
+		*reply = taskInfo
+		fmt.Println("sent map task of %v", taskInfo.FileName)
+		return nil
+	}
 
-	// 需考虑超时任务的回炉重造
-	// 分配任务的逻辑，先分配 map ，
-	// 待 map 全部正确完成后（包括超时重分），
-	// 才开始 reduce 任务的分配
+	if m.reduceTaskQueuing.getLength() > 0 {
+		taskInfo := m.reduceTaskQueuing.Pop()
+		taskInfo.getStartTime()
+		m.reduceTaskRunning.Push(taskInfo)
+		*reply = taskInfo
+		fmt.Println("sent reduce task of %v", taskInfo.FileName)
+		return nil
+	}
+
+	if m.mapTaskRunning.getLength() == 0 && m.reduceTaskRunning.getLength() == 0 {
+		reply.TaskState = TASK_END
+		m.isDone = true
+		return nil
+	} else {
+		reply.TaskState = TASK_RUNNING
+		return nil
+	}
 }
 
 
 func (m *Master) TaskDone(taskInfo *TaskInfo) error {
-	// 
+	switch taskInfo.TaskType {
+	case MAP_TASK:
+		m.mapTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
+		fmt.Println("map task on %v file is complete", taskInfo.FileName)
+		// 当所有 map 任务完成后，才能开始 reduce 任务
+		if m.mapTaskRunning.getLength() == 0 && m.mapTaskQueuing.getLength() == 0 {
+			err := m.initReduceTask(taskInfo)
+			if err == nil {
+				fmt.Println("init reduce task done ... ")
+			}
+		}
+		break
+	case REDUCE_TASK:
+		m.reduceTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
+		fmt.Println("reduce task on %v part is complete", taskInfo.PartIndex)
+		break
+	default:
+		panic("wrong task done")
+	}
+	return nil
 }
 
 // 
@@ -55,10 +94,18 @@ func (m *Master) TaskDone(taskInfo *TaskInfo) error {
 // 
 func (m *Master) initMapTask(files []string, nReduce int) error {
 	for idx, file := range files {
-		// 分配 mapTask
+		taskInfo := TaskInfo{
+			TaskType: MAP_TASK,
+			TaskState: TASK_WAIT,
+			FileName: file,
+			FileIndex: idx,
+			NReduces: nReduce,
+			NInputFiles: len(files),
+		}
+		m.mapTaskQueuing.Push(taskInfo)
 	}
+	return nil
 }
-
 
 func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
 	for i:= 0; i < taskInfo.NReduces; i++ {
@@ -67,14 +114,10 @@ func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
 		newReduceTaskInfo.TaskState = TASK_WAIT  // 在判断任务是否结束时可用
 		newReduceTaskInfo.PartIndex = i 
 		newReduceTaskInfo.NInputFiles = m.NFiles
-
+		m.reduceTaskQueuing.Push(newReduceTaskInfo)
 	}
+	return nil
 }
-
-func (m *Master) sendMapTask(args *RequestTaskArgs, reply *RequestTaskReply) error {
-	// 仅考虑 map 任务的发送逻辑，包含回炉重造
-}
-
 
 // 将超时的任务队列重新添加至相应的等候任务队列中
 func (m *Master) AppendTimeOutQueue() {
@@ -114,11 +157,6 @@ func (m *Master) startServer() {
 	go http.Serve(l, nil)
 }
 
-// 停止 Master server
-func (m *Master) stopServer() {
-
-}
-
 // main/mrmaster.go 需要调用此方法判断 master 中任务是否全部结束
 func (m *Master) Done() bool {
 	m.lock()
@@ -142,9 +180,14 @@ func (m *Master) Done() bool {
 func MakeMaster(files []string, nReduce int) *Master {
 	// 初始化 Master 结构
 	m := Master{}
+	m.NFiles = len(files)
 
-	// 根据输出文件初始化 mapTaskQueuing
+	err := m.initMapTask(files, nReduce)
+	if err == nil {
+		fmt.Println("init map task done ... ")
+	}
 
+	go m.AppendTimeOutQueue()
 	// 启动 Master server
 	m.startServer()
 	return &m
