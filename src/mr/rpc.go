@@ -6,16 +6,11 @@ import (
 	"time"
 )
 
-const (
-	MAP_TASK = "map"
-	REDUCE_TASK = "reduce"
-	TASK_WAIT = "wait"
-	TASK_RUNNING = "running"
-	TASK_END = "end"
-)
 
+//
+// 关于 rpc 通信的信息结构
+//
 type RequestTaskArgs struct {
-	// 
 }
 
 type RequestTaskReply struct {
@@ -25,7 +20,7 @@ type RequestTaskReply struct {
 type TaskInfo struct {
 	TaskType        string  // "map" or "reduce"
 	TaskState       string  // "wait", "running", "end"，根据任务状态决定任务在 TaskQueue 中的转移方式
-	StartTime       time.time   // 判断任务是否超时
+	StartTime       time.Time   // 判断任务是否超时
 	FileName        string  // 仅用于 MapTask
 	FileIndex       int
 	PartIndex       int     // 仅用于 ReduceTask,指定该 task 要处理哪一块 files
@@ -38,7 +33,10 @@ type TaskQueue struct {
 	mutex     sync.Mutex
 }
 
+// 
+// 关于任务队列
 // 针对 TaskQueue 的一系列操作，如锁，吞，吐，删，测
+// 
 func (tq *TaskQueue) lock() {
 	tq.mutex.Lock()
 }
@@ -90,15 +88,10 @@ func (tq *TaskQueue) Remove(fileIndex int, partIndex int) {
 	tq.unlock()
 }
 
-
-// 获取 server 地址
-func getMasterSockAddr() string {
-	s := "/var/tmp/824-mr-"
-	s += strconv.Itoa(os.Getuid())
-	return s
-}
-
-// 关于任务超时的一系列针对 TaskInfo 的操作，包括超时时间判断，收集超时的任务队列
+//
+// 关于任务超时：
+// 针对 TaskInfo 的一系列操作，包括获取开始时间，超时时间判断，收集超时的任务队列
+// 
 func (ti *TaskInfo) getStartTime() {
 	ti.StartTime = time.Now()
 }
@@ -126,3 +119,11 @@ func (tq *TaskQueue) getTimeOutQueue() []TaskInfo {
 	return taskQueue
 }
 
+//
+// 获取 server 地址
+//
+func getMasterSockAddr() string {
+	s := "/var/tmp/824-mr-"
+	s += strconv.Itoa(os.Getuid())
+	return s
+}

@@ -6,27 +6,26 @@ import "net/rpc"
 import "hash/fnv"
 
 
-//
-// Map functions return a slice of KeyValue.
-//
 type KeyValue struct {
 	Key   string
 	Value string
 }
-//
-// copy from main/mrsequential
-//
-// reduce_func 中所有相关文件中的数据存储进 intermediate_data 之后需要用到
+
+// 
+// 数据排序
+// 用于 reduce_func 前同 key 数据的聚堆
+// 
 type ByKey []mr.KeyValue
 
-// for sorting by key.
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
 
-// 通过 hash 的方式为 key 从 range [0: NReduce] 中选 PartIndex,
-// 从而保证不同文件中的同一个 key 所在文件的 PartIndex 部分相同,
-// 即被同一个 ReduceTask 处理（一个 ReduceTask 处理一组同一 PartIndex 的文件) 
+
+// 
+// 给不同的 key 分配区块
+// 保证不同文件中同一个 key 所在文件的 PartIndex 部分相同
+// （每个 reduceWorker 处理一块相同 PartIndex 的文件) 
 // 
 func ihash(key string) int {
 	h := fnv.New32a()
@@ -37,9 +36,24 @@ func ihash(key string) int {
 
 //
 // main/mrworker.go calls this function.
+// 完整的 worker 工作流程
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
+		for {
+			taskInfo := CallSendTask()
+			switch taskInfo.TaskType {
+			case MAP_TASK:
+				mapWorker(mapf, taskInfo)
+			case REDUCE_TASK:
+				reducef(reducef, taskInfo)
+			case TASK_END:
+				fmt.Println("All task done")
+				return 
+			default:
+				panic("Invalid Task type")
+			}
+		}
 
 	// 步骤一：请求任务
 	// 步骤二：解析任务
@@ -73,15 +87,16 @@ func CallTaskDone(taskInfo *TaskInfo){
 	return &taskInfo
 }
 
-func mapWorker(map func(string string) []KeyValue, taskInfo *TaskInfo) {
+func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 
 	// 从打开文件读文件到执行 mapf 再到分文件存中间结果中间文件，保存最终结果
 	// 调用任务结束
 }
 
-func reduceWorker(taskInfo TaskInfo) {
+func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	// 从解析任务到读文件到排序数据到依次执行 reduce_func 再到保存中间文件，再到保存最终
 	// 再到调用任务结束
+	// sort.Sort(ByKey(intermediate))
 }
 func makeMapOutFileName() string {
 	// 构造 map 输出文件的名
