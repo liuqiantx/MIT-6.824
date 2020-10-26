@@ -1,10 +1,14 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"sync"
+	"log"
+	"net/rpc"
+	"net/http"
+	"os"
+	"net"
+	"time"
+)
 
 const (
 	MAP_TASK = "map"
@@ -15,10 +19,10 @@ const (
 )
 
 type Master struct {
-	mapTaskRunning          []mr.TaskQueue
-	mapTaskQueuing          []mr.TaskQueue
-	reduceTaskRunning       []mr.TaskQueue
-	reduceTaskQueuing       []mr.TaskQueue
+	mapTaskRunning          []TaskQueue
+	mapTaskQueuing          []TaskQueue
+	reduceTaskRunning       []TaskQueue
+	reduceTaskQueuing       []TaskQueue
 	mutex                   sync.Mutex  // 针对 master 的处理，需锁定后执行
 	isDone                  bool
 	NFiles                  int     // 创建　reduce 任务时，需要传给 taskInfo
