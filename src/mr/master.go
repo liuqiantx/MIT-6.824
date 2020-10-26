@@ -32,7 +32,7 @@ func (m *Master) unlock() {
 	m.mutex.Unlock()
 }
 
-func (m *Master) SendTask(args *TaskRequestInfo, reply *TaskInfo) error{
+func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error{
 	// 完整任务分配流程（必须等所有 mapTask 完成后再开始 reduceTask）
 	m.lock()
 	defer m.unlock()
@@ -46,8 +46,8 @@ func (m *Master) SendTask(args *TaskRequestInfo, reply *TaskInfo) error{
 }
 
 
-func (m *Master) TaskDone(reply *TaskInfo) error {
-	// 通知任务完成的流程
+func (m *Master) TaskDone(taskInfo *TaskInfo) error {
+	// 
 }
 
 // 

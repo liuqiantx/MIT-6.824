@@ -13,10 +13,6 @@ import (
 type RequestTaskArgs struct {
 }
 
-type RequestTaskReply struct {
-	reply  TaskInfo
-}
-
 type TaskInfo struct {
 	TaskType        string  // "map" or "reduce"
 	TaskState       string  // "wait", "running", "end"，根据任务状态决定任务在 TaskQueue 中的转移方式

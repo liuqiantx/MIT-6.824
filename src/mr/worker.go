@@ -1,9 +1,12 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
+import (
+	"strconv"
+	"fmt"
+	"log"
+	"net/rpc"
+	"hash/fnv"
+)
 
 
 type KeyValue struct {
@@ -37,6 +40,11 @@ func ihash(key string) int {
 //
 // main/mrworker.go calls this function.
 // 完整的 worker 工作流程
+// 1. 请求任务
+// 2. 解析任务,得到任务类型
+// 3. 根据指定的任务类型,切换任务分支
+// 4. 在特定分支执行特定任务
+// 5. 迭代 1~4, 直到任务类型为"全部完成"时,输出任务完成,退出 Worker 
 //
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
@@ -54,56 +62,51 @@ func Worker(mapf func(string, string) []KeyValue,
 				panic("Invalid Task type")
 			}
 		}
-
-	// 步骤一：请求任务
-	// 步骤二：解析任务
-	// 步骤三：切换任务分支
-	// 步骤四： 执行任务
-
-	// uncomment to send the Example RPC to the master.
-	// 包含跟 master 请求任务的部分（详细部分，可在下方）
-	// 第一次请求任务CallSendTask()
-	// 执行任务(根据reply 结果，解析并 switch 到特定任务)
-	// 判断任务执行完成
-	// 再次请求任务 CallSendTask()
-	// 直到返回任务全部执行完毕，则退出
-
 }
 
-func doTask(taskinfo TaskInfo) {
-	// switch
-}
-
-// ??? 需要再思考
 func CallSendTask() *TaskInfo {
-	// args := ExampleArgs{}  -> ???
-	reply := TaskInfo
+	args := RequestTaskArgs{}  // TODO 是否需要请求体结构,需要待定
+	reply := TaskInfo{}
 	call("Master.SendTask", &args, &reply)
 	return &reply
 }
 
+// TODO 
 func CallTaskDone(taskInfo *TaskInfo){
 	call("Master.TaskDone", &taskInfo)
 	return &taskInfo
 }
 
-func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 
-	// 从打开文件读文件到执行 mapf 再到分文件存中间结果中间文件，保存最终结果
-	// 调用任务结束
+func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
+	// 1. 解析任务信息,获取要处理的文件名,文件索引(fi)
+	// 2. 打开文件,读取文件内容
+	// 3. 对文件内容执行 map_function
+	// 4. 获取任务信息中 NReduces 数量
+	// 5. 生成 N 个临时文件(临时保存 KeyValue), N 个编码文件(保存 KeyValue 的编码形式), N 个保存最终 KeyValue 的数据文件.(当 NReduce 为 10 时,文件名为 mr-fi-0 ~ mr-fi-9)
+	// 6. 迭代对 KeyValue 中的 Key 进行 hash % NReduce,所得结果即该 Key 所属的 PartIndex.(如,当 {"happy", 1} hash 后的结果为 8,则 {"happy", 1} 保存至文件名为 mr-fi-8 的文件中)
+	// 7. 将 KeyValue 保存至对应索引的临时文件中
+	// 8. 待所有临时文件都保存完毕后,再将文件结果保存至编码文件和最终文件
+	// 9. 报告任务结束
 }
 
 func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
-	// 从解析任务到读文件到排序数据到依次执行 reduce_func 再到保存中间文件，再到保存最终
-	// 再到调用任务结束
-	// sort.Sort(ByKey(intermediate))
+	// 1. 解析任务信息,获取处理的数据的 PartIndex,假设为 1
+	// 2. 初始化中间数据的存放 slice, 假设为 intermediate
+	// 3. 依次迭代 mapWorker 结果文件夹中的结果文件,当文件名的 PartIndex 部分为 1 时,进行下一步处理
+	// 4. 打开文件,读取文件内容
+	// 5. 将文件内容添加至 intermediate 中
+	// 6. 对 intermediate 中的数据进行排序
+	// 7. 按顺序读取 intermediate 中的 KeyValue，对于每一组同 Key 数据，执行依次 reduce function．
+	// 8. 将结果依次写入 mr-out-1 文件中
+	// 9. 待所有结果存储完毕，报告任务结束
 }
-func makeMapOutFileName() string {
-	// 构造 map 输出文件的名
+func makeMapOutFileName(fileIndex int, partIndex int) string {
+	return "mr-" + strconv.Itoa(fileIndex) + "-" + strconv.Itoa(partIndex)
 }
 
-func makeReduceOutFileName() string {
-
+func makeReduceOutFileName(partIndex int) string {
+	return "mr-out-" + strconv.Itoa(partIndex)
 }
 
 //
