@@ -27,7 +27,7 @@ Map Reduce: 一种可并行处理大量数据的算法模型
     - master: 负责创建，调度任务的老板（此流程中仅一个，但实际生产环境中，需要有备份 master，以应对 master 出现故障的情况）．
     - worker: 向 master 请求任务，然后执行任务的打工人，worker 两种任务都可执行（map / reduce），具体执行什么，由 master 决定（先分配 map 任务），worker 数量众多，能力参差不齐，当 worker 任务执行失败时（近似失败），master 会将其任务分给其他的打工人执行．
   - 算法实现流程:
-  -> 
+  -> master 根据输入的文件数量，创建
 
 
 ## Map Reduce 相关代码的目录结构
