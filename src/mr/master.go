@@ -1,31 +1,32 @@
 package mr
 
 import (
-	"sync"
+	"fmt"
 	"log"
-	"net/rpc"
-	"net/http"
-	"os"
 	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+	"sync"
 	"time"
 )
 
 const (
-	MAP_TASK = "map"
-	REDUCE_TASK = "reduce"
-	TASK_WAIT = "wait"
-	TASK_RUNNING = "running"
-	TASK_END = "end"
+	MapTask     = "map",
+	ReduceTask  = "reduce",
+	TaskIdle    = "wait",
+	TaskRunning = "running",
+	TaskEnd     = "end"
 )
 
 type Master struct {
-	mapTaskRunning          []TaskQueue
-	mapTaskQueuing          []TaskQueue
-	reduceTaskRunning       []TaskQueue
-	reduceTaskQueuing       []TaskQueue
-	mutex                   sync.Mutex  // 针对 master 的处理，需锁定后执行
-	isDone                  bool
-	NFiles                  int     // 创建　reduce 任务时，需要传给 taskInfo
+	mapTaskRunning    []TaskQueue
+	mapTaskQueuing    []TaskQueue
+	reduceTaskRunning []TaskQueue
+	reduceTaskQueuing []TaskQueue
+	mutex             sync.Mutex // 针对 master 的处理，需锁定后执行
+	isDone            bool
+	NFiles            int // 创建　reduce 任务时，需要传给 taskInfo
 }
 
 func (m *Master) lock() {
@@ -36,7 +37,7 @@ func (m *Master) unlock() {
 	m.mutex.Unlock()
 }
 
-func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error{
+func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error {
 	// 完整任务分配流程（必须等所有 mapTask 完成后再开始 reduceTask）
 	m.lock()
 	defer m.unlock()
@@ -69,7 +70,6 @@ func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error{
 	}
 }
 
-
 func (m *Master) TaskDone(taskInfo *TaskInfo) error {
 	switch taskInfo.TaskType {
 	case MAP_TASK:
@@ -93,17 +93,17 @@ func (m *Master) TaskDone(taskInfo *TaskInfo) error {
 	return nil
 }
 
-// 
+//
 // 注意：mapTask 和 reduceTask 的初始化生成场景不同，输入的参数也不同
-// 
+//
 func (m *Master) initMapTask(files []string, nReduce int) error {
 	for idx, file := range files {
 		taskInfo := TaskInfo{
-			TaskType: MAP_TASK,
-			TaskState: TASK_WAIT,
-			FileName: file,
-			FileIndex: idx,
-			NReduces: nReduce,
+			TaskType:    MAP_TASK,
+			TaskState:   TASK_WAIT,
+			FileName:    file,
+			FileIndex:   idx,
+			NReduces:    nReduce,
 			NInputFiles: len(files),
 		}
 		m.mapTaskQueuing.Push(taskInfo)
@@ -112,11 +112,11 @@ func (m *Master) initMapTask(files []string, nReduce int) error {
 }
 
 func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
-	for i:= 0; i < taskInfo.NReduces; i++ {
+	for i := 0; i < taskInfo.NReduces; i++ {
 		newReduceTaskInfo := TaskInfo{}
-		newReduceTaskInfo.TaskType  = REDUCE_TASK
-		newReduceTaskInfo.TaskState = TASK_WAIT  // 在判断任务是否结束时可用
-		newReduceTaskInfo.PartIndex = i 
+		newReduceTaskInfo.TaskType = REDUCE_TASK
+		newReduceTaskInfo.TaskState = TASK_WAIT // 在判断任务是否结束时可用
+		newReduceTaskInfo.PartIndex = i
 		newReduceTaskInfo.NInputFiles = m.NFiles
 		m.reduceTaskQueuing.Push(newReduceTaskInfo)
 	}
@@ -143,7 +143,7 @@ func (m *Master) AppendTimeOutQueue() {
 	}
 }
 
-// 注册 Master server 
+// 注册 Master server
 func (m *Master) startServer() {
 	rpc.Register(m)
 	rpc.HandleHTTP()
@@ -177,7 +177,7 @@ func (m *Master) Done() bool {
 //
 // main/mrmaster.go calls this function.
 // 读取命令行输入，
-// 将输入的文件传给 MakeMaster() 函数创建 master server 
+// 将输入的文件传给 MakeMaster() 函数创建 master server
 // 当 m.Done 为 False 时，每次任务都休息 time.Second, 当为 True 时，休息一次后结束 main 函数
 // 创建并初始化 Master 对象，然后启用 Master server
 //
