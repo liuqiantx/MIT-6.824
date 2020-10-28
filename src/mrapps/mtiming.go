@@ -2,7 +2,7 @@ package main
 
 //
 // a MapReduce pseudo-application to test that workers
-// execute map tasks in parallel. 测试 map 任务是否是并行完成的
+// execute map tasks in parallel. 
 //
 // go build -buildmode=plugin mtiming.go
 //

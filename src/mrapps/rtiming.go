@@ -2,7 +2,7 @@ package main
 
 //
 // a MapReduce pseudo-application to test that workers
-// execute reduce tasks in parallel.　检测 workers 是否是并行执行 reduce 任务的测试应用（可生成插件）
+// execute reduce tasks in parallel.　
 //
 // go build -buildmode=plugin rtiming.go
 //
