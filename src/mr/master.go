@@ -23,9 +23,14 @@ type Master struct {
 	mapTaskQueuing          []TaskQueue
 	reduceTaskRunning       []TaskQueue
 	reduceTaskQueuing       []TaskQueue
+
 	mutex                   sync.Mutex  // 针对 master 的处理，需锁定后执行
 	isDone                  bool
 	NFiles                  int     // 创建　reduce 任务时，需要传给 taskInfo
+
+	// 判断刚完成的 task 是否是新的
+	finishedFileIndexes    []int
+	finishedPartIndexes    []int
 }
 
 func (m *Master) lock() {
@@ -70,28 +75,67 @@ func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error{
 }
 
 
-func (m *Master) TaskDone(taskInfo *TaskInfo) error {
-	switch taskInfo.TaskType {
-	case MAP_TASK:
-		m.mapTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
-		fmt.Println("map task on %v file is complete", taskInfo.FileName)
-		// 当所有 map 任务完成后，才能开始 reduce 任务
-		if m.mapTaskRunning.getLength() == 0 && m.mapTaskQueuing.getLength() == 0 {
-			err := m.initReduceTask(taskInfo)
-			if err == nil {
-				fmt.Println("init reduce task done ... ")
-			}
+type TaskDoneArgs struct {
+	// common
+	TaskType    string
+	NReduces    int
+
+	// map task done
+	FileIndex   int
+	TmpFiles    []string   // 对于 map task，[]中多个值，对于 reduce task，[]中一个值
+
+	// reduce task done
+	PartIndex   int
+	TmpOutputFile  string
+}
+
+func isElementInSLice(ele int, s []int) {
+	for _, v := range s {
+		if v == ele {
+			return true
 		}
-		break
-	case REDUCE_TASK:
-		m.reduceTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
-		fmt.Println("reduce task on %v part is complete", taskInfo.PartIndex)
-		break
-	default:
-		panic("wrong task done")
 	}
+	return false
+}
+
+func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo *TaskInfo)  error {
+	m.lock()
+	defer m.unlock()
+
+	if args.TaskType == MAP_TASK {
+		if isElementInSLice(args.FileIndex, m.finishedFileIndexes) {
+			return nil
+		}
+
+		// 更改任务所处队列，将文件索引添加至已完成队列
+		m.finishedFileIndexes = append(m.finishedFileIndexes, args.FileIndex)
+
+		// 文件重命名
+		for i:= 0; i < args.NReduces; i++ {
+			name := makeMapOutFileName(args.FileIndex, i)
+			os.Rename(args.TmpFiles[i], name)
+		}
+
+		fmt.Println("map task of %v is done", args.FileIndex)
+	} else {
+		if isElementInSLice(args.PartIndex, m.finishedPartIndexes) {
+			return nil
+		}
+
+		m.finishedPartIndexes = append(m.finishedPartIndexes, args.PartIndex)
+
+		name := makeReduceOutFileName(args.PartIndex)
+		os.Rename(args.TmpOutputFile, name)
+
+		fmt.Println("reduce task of %v is done", args.PartIndex)
+	}
+
 	return nil
 }
+
+//
+// 判断 index 是否存在于 slice 中
+//
 
 // 
 // 注意：mapTask 和 reduceTask 的初始化生成场景不同，输入的参数也不同

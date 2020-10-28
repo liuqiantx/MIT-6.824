@@ -14,15 +14,33 @@ type RequestTaskArgs struct {
 }
 
 type TaskInfo struct {
+	// common
 	TaskType        string  // "map" or "reduce"
-	TaskState       string  // "wait", "running", "end"，根据任务状态决定任务在 TaskQueue 中的转移方式
+	TaskState       string  // "idle", "running", "end"，根据任务状态决定任务在 TaskQueue 中的转移方式
 	StartTime       time.Time   // 判断任务是否超时
+	NInputFiles     int  // 等于 MapTasksNum
+	NReduces        int   
+
+	// map task
 	FileName        string  // 仅用于 MapTask
 	FileIndex       int
+
+	// reduce task
 	PartIndex       int     // 仅用于 ReduceTask,指定该 task 要处理哪一块 files
-	NReduces        int   
-	NInputFiles     int  // 等于 MapTasksNum
 }
+
+type TaskDoneArgs struct {
+	// common
+	TmpFiles    []string   // 对于 map task，[]中多个值，对于 reduce task，[]中一个值
+
+	// map task done
+	TaskType    string
+	FileIndex   int
+
+	// reduce task done
+	PartIndex   int
+}
+
 
 type TaskQueue struct {
 	TaskArray  []TaskInfo
