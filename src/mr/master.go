@@ -11,23 +11,47 @@ import (
 	"time"
 )
 
+//
+// 常量
+//
+
+// 任务类型和任务状态的标记符
 const (
-	MapTask     = "map",
-	ReduceTask  = "reduce",
-	TaskIdle    = "wait",
-	TaskRunning = "running",
-	TaskEnd     = "end"
+	MapTask      = "map"
+	ReduceTask   = "reduce"
+	EmptyTask    = "empty"
+	TaskIdle     = "wait"
+	TaskRunning  = "running"
+	TaskFinished = "finished"
 )
 
+//
+// 基本数据结构
+//
+
+// Master 做任务调度需要用到的信息结构
 type Master struct {
-	mapTaskRunning    []TaskQueue
-	mapTaskQueuing    []TaskQueue
-	reduceTaskRunning []TaskQueue
-	reduceTaskQueuing []TaskQueue
-	mutex             sync.Mutex // 针对 master 的处理，需锁定后执行
-	isDone            bool
-	NFiles            int // 创建　reduce 任务时，需要传给 taskInfo
+	mapIdleQueue        TaskQueue
+	mapRunningQueue     TaskQueue
+	mapFinishedQueue    TaskQueue
+	reduceIdleQueue     TaskQueue
+	reduceRunningQueue  TaskQueue
+	reduceFinishedQueue TaskQueue
+
+	mutex  sync.Mutex // 针对 master 的处理，需锁定后执行
+	isDone bool
+
+	// 判断刚完成的 task 是否是新的
+	finishedFileIndexes []int
+	finishedPartIndexes []int
+
+	NFiles   int
+	NReduces int
 }
+
+//
+// 常规方法
+//
 
 func (m *Master) lock() {
 	m.mutex.Lock()
@@ -37,111 +61,171 @@ func (m *Master) unlock() {
 	m.mutex.Unlock()
 }
 
-func (m *Master) SendTask(args *TaskRequestInfo, taskInfo *TaskInfo) error {
-	// 完整任务分配流程（必须等所有 mapTask 完成后再开始 reduceTask）
-	m.lock()
-	defer m.unlock()
-	// 任务发送逻辑
-	if m.mapTaskQueuing.getLength() > 0 {
-		taskInfo := m.mapTaskQueuing.Pop()
-		taskInfo.getStartTime()
-		m.mapTaskRunning.Push(taskInfo)
-		*reply = taskInfo
-		fmt.Println("sent map task of %v", taskInfo.FileName)
-		return nil
-	}
-
-	if m.reduceTaskQueuing.getLength() > 0 {
-		taskInfo := m.reduceTaskQueuing.Pop()
-		taskInfo.getStartTime()
-		m.reduceTaskRunning.Push(taskInfo)
-		*reply = taskInfo
-		fmt.Println("sent reduce task of %v", taskInfo.FileName)
-		return nil
-	}
-
-	if m.mapTaskRunning.getLength() == 0 && m.reduceTaskRunning.getLength() == 0 {
-		reply.TaskState = TASK_END
-		m.isDone = true
-		return nil
-	} else {
-		reply.TaskState = TASK_RUNNING
-		return nil
-	}
-}
-
-func (m *Master) TaskDone(taskInfo *TaskInfo) error {
-	switch taskInfo.TaskType {
-	case MAP_TASK:
-		m.mapTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
-		fmt.Println("map task on %v file is complete", taskInfo.FileName)
-		// 当所有 map 任务完成后，才能开始 reduce 任务
-		if m.mapTaskRunning.getLength() == 0 && m.mapTaskQueuing.getLength() == 0 {
-			err := m.initReduceTask(taskInfo)
-			if err == nil {
-				fmt.Println("init reduce task done ... ")
-			}
-		}
-		break
-	case REDUCE_TASK:
-		m.reduceTaskRunning.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
-		fmt.Println("reduce task on %v part is complete", taskInfo.PartIndex)
-		break
-	default:
-		panic("wrong task done")
-	}
-	return nil
-}
-
 //
+// 任务调度相关的方法
+//
+
 // 注意：mapTask 和 reduceTask 的初始化生成场景不同，输入的参数也不同
-//
+// initMapTask -> master 初始化 map task 的方法
 func (m *Master) initMapTask(files []string, nReduce int) error {
 	for idx, file := range files {
-		taskInfo := TaskInfo{
-			TaskType:    MAP_TASK,
-			TaskState:   TASK_WAIT,
+		newMapIdleTask := TaskInfo{
+			TaskType:    MapTask,
+			TaskState:   TaskIdle,
+			StartTime:   time.Time,
+			NInputFiles: len(files),
+			NReduces:    nReduce,
 			FileName:    file,
 			FileIndex:   idx,
-			NReduces:    nReduce,
-			NInputFiles: len(files),
 		}
-		m.mapTaskQueuing.Push(taskInfo)
+		m.mapIdleQueue.Push(newMapIdleTask)
 	}
 	return nil
 }
 
+// initReduceTask -> master 初始化 reduce task 的方法
 func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
 	for i := 0; i < taskInfo.NReduces; i++ {
-		newReduceTaskInfo := TaskInfo{}
-		newReduceTaskInfo.TaskType = REDUCE_TASK
-		newReduceTaskInfo.TaskState = TASK_WAIT // 在判断任务是否结束时可用
-		newReduceTaskInfo.PartIndex = i
-		newReduceTaskInfo.NInputFiles = m.NFiles
-		m.reduceTaskQueuing.Push(newReduceTaskInfo)
+		newReduceIdleTask := TaskInfo{
+			TaskType:    ReduceTask,
+			TaskState:   TaskIdle,
+			NInputFiles: taskInfo.NInputFiles,
+			PartIndex:   i,
+		}
+		m.reduceIdleQueue.Push(newReduceIdleTask)
 	}
 	return nil
 }
 
-// 将超时的任务队列重新添加至相应的等候任务队列中
+// SendTask -> Master做任务调度的流程
+// ->先发 map,待 map 全部完成后才开始 reduce,当 reduce 全部完成时,发送状态为已完成的任务
+func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskInfo *TaskInfo) {
+	m.lock()
+	defer m.unlock()
+
+	if len(m.finishedFileIndexes) < m.NFiles {
+		taskInfo := m.mapIdleQueue.Pop()
+		taskInfo.getStartTime()
+		m.mapRunningQueue.Push(taskInfo)
+		fmt.Println("sent map task of %v", taskInfo.FileName)
+		return &taskInfo
+	}
+
+	if len(m.finishedPartIndexes) < m.NReduces {
+		taskInfo := m.reduceIdleQueue.Pop()
+		taskInfo.getStartTime()
+		m.reduceRunningQueue.Push(taskInfo)
+		fmt.Println("sent reduce task of %v", taskInfo.PartIndex)
+		return &taskInfo
+	}
+
+	if len(m.finishedFileIndexes) == m.NFiles && len(m.finishedPartIndexes) == m.NReduces {
+		taskInfo := TaskInfo{
+			TaskType:  EmptyTask,
+			TaskState: TaskFinished,
+		}
+		m.isDone = true
+		return &taskInfo
+	} else {
+		taskInfo := TaskInfo{
+			TaskType:  EmptyTask,
+			TaskState: TaskRunning,
+		}
+		return &taskInfo
+	}
+}
+
+// TaskDone -> worker 发送任务完成后 master 的操作逻辑
+func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo *TaskInfo) error {
+	m.lock()
+	defer m.unlock()
+
+	if args.TaskType == MapTask {
+		if isElementInSLice(args.FileIndex, m.finishedFileIndexes) {
+			return nil
+		}
+
+		// 更改任务所处队列，将文件索引添加至已完成队列
+		m.finishedFileIndexes = append(m.finishedFileIndexes, args.FileIndex)
+		m.mapFinishedQueue = append(m.mapFinishedQueue, taskInfo)
+		m.mapRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+
+		// 文件重命名
+		for i := 0; i < args.NReduces; i++ {
+			name := makeMapOutFileName(args.FileIndex, i)
+			os.Rename(args.TmpFiles[i], name)
+		}
+
+		fmt.Println("map task of %v is done", args.FileIndex)
+	} else {
+		if isElementInSLice(args.PartIndex, m.finishedPartIndexes) {
+			return nil
+		}
+
+		m.finishedPartIndexes = append(m.finishedPartIndexes, args.PartIndex)
+		m.reduceFinishedQueue = append(m.reduceFinishedQueue, taskInfo)
+		m.reduceRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+
+		name := makeReduceOutFileName(args.PartIndex)
+		os.Rename(args.TmpOutputFile, name)
+
+		fmt.Println("reduce task of %v is done", args.PartIndex)
+	}
+	return nil
+}
+
+// AppendTimeOutQueue -> master 将超时任务重新添加回待执行的任务队列中
 func (m *Master) AppendTimeOutQueue() {
 	for {
 		time.Sleep(time.Duration(time.Second * 10))
 
-		mapTimeoutQueue = m.mapTaskRunning.getTimeOutQueue()
+		mapTimeoutQueue = m.mapRunningQueue.getTimeOutQueue()
 		if mapTimeoutQueue.getLength() > 0 {
-			m.mapTaskQueuing.lock()
-			m.mapTaskQueuing.TaskArray = append(m.mapTaskQueuing.TaskArray, mapTimeoutQueue...)
-			m.mapTaskQueuing.unlock()
+
+			m.mapIdleQueue.lock()
+			m.mapIdleQueue.TaskArray = append(m.mapIdleQueue.TaskArray, mapTimeoutQueue...)
+			m.mapIdleQueue.unlock()
+
+			m.mapRunningQueue.lock()
+			for _, taskInfo := range mapTimeoutQueue {
+				m.mapRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+			}
+			m.mapRunningQueue.unlock()
+
 		}
 
-		reduceTimeoutQueue = m.reduceTaskRunning.getTimeOutQueue()
+		reduceTimeoutQueue = m.reduceRunningQueue.getTimeOutQueue()
 		if reduceTimeoutQueue.getLength() > 0 {
-			m.reduceTaskQueuing.lock()
-			m.reduceTaskQueuing.TaskArray = append(m.reduceTaskQueuing.TaskArray, reduceTimeoutQueue...)
+
+			m.reduceIdleQueue.lock()
+			m.reduceIdleQueue.TaskArray = append(m.reduceIdleQueue.TaskArray, reduceTimeoutQueue...)
+			m.reduceIdleQueue.unlock()
+
+			m.reduceRunningQueue.lock()
+			for _, taskInfo := range reduceTimeoutQueue {
+				m.reduceRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+			}
+			m.reduceRunningQueue.unlock()
 		}
 	}
 }
+
+// Done -> master 任务完成时,主流程需要调用的方法
+func (m *Master) Done() bool {
+	m.lock()
+	defer m.unlock()
+
+	if m.isDone {
+		fmt.Println("All task is done, stop master server")
+		return true
+	}
+
+	return false
+}
+
+//
+// master 初始化
+//
 
 // 注册 Master server
 func (m *Master) startServer() {
@@ -161,36 +245,19 @@ func (m *Master) startServer() {
 	go http.Serve(l, nil)
 }
 
-// main/mrmaster.go 需要调用此方法判断 master 中任务是否全部结束
-func (m *Master) Done() bool {
-	m.lock()
-	defer m.unlock()
-
-	if m.isDone() {
-		fmt.Println("All task is done, stop master server")
-		return true
-	}
-
-	return false
-}
-
-//
-// main/mrmaster.go calls this function.
-// 读取命令行输入，
-// 将输入的文件传给 MakeMaster() 函数创建 master server
-// 当 m.Done 为 False 时，每次任务都休息 time.Second, 当为 True 时，休息一次后结束 main 函数
-// 创建并初始化 Master 对象，然后启用 Master server
-//
+// MakeMaster -> 创建并初始化 Master 对象，然后启用 Master server
 func MakeMaster(files []string, nReduce int) *Master {
 	// 初始化 Master 结构
 	m := Master{}
 	m.NFiles = len(files)
+	m.NReduces = nReduce
 
 	err := m.initMapTask(files, nReduce)
 	if err == nil {
 		fmt.Println("init map task done ... ")
 	}
 
+	// 同时收集超时任务
 	go m.AppendTimeOutQueue()
 	// 启动 Master server
 	m.startServer()
