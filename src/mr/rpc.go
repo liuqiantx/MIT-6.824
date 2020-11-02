@@ -81,11 +81,11 @@ func (tq *TaskQueue) Push(taskInfo TaskInfo) {
 func (tq *TaskQueue) Pop() TaskInfo {
 	tq.lock()
 
-	length = tq.getLength()
+	length := tq.getLength()
 	if length == 0 {
 		tq.unlock()
 		taskInfo := TaskInfo{}
-		taskInfo.TaskState == TASK_END
+		taskInfo.TaskState = TaskRunning
 		return taskInfo
 	}
 
@@ -98,9 +98,9 @@ func (tq *TaskQueue) Pop() TaskInfo {
 func (tq *TaskQueue) Remove(fileIndex int, partIndex int) {
 	tq.lock()
 
-	length = tq.getLength()
+	length := tq.getLength()
 	for i := 0; i < length; {
-		taskInfo = tq.TaskArray[i]
+		taskInfo := tq.TaskArray[i]
 		if (taskInfo.FileIndex == fileIndex) && (taskInfo.PartIndex == partIndex) {
 			tq.TaskArray = append(tq.TaskArray[:i], tq.TaskArray[i+1:]...)
 		} else {
@@ -121,7 +121,7 @@ func (ti *TaskInfo) getStartTime() {
 }
 
 // 超时判断，超时时间定为 10s
-func (ti *TaskInfo) isOutOfTime() {
+func (ti *TaskInfo) isOutOfTime() bool {
 	return time.Now().Sub(ti.StartTime) > time.Duration(time.Second*10)
 }
 
@@ -129,11 +129,11 @@ func (tq *TaskQueue) getTimeOutQueue() []TaskInfo {
 	taskQueue := make([]TaskInfo, 0)
 	tq.lock()
 
-	length = tq.getLength()
+	length := tq.getLength()
 	for i := 0; i < length; {
-		taskInfo = tq.TaskArray[i]
+		taskInfo := tq.TaskArray[i]
 		if taskInfo.isOutOfTime() {
-			taskQueue = taskQueue.Push(taskInfo)
+			taskQueue = append(taskQueue, taskInfo)
 			tq.TaskArray = append(tq.TaskArray[:i], tq.TaskArray[i+1:]...)
 		} else {
 			i++

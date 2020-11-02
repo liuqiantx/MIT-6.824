@@ -9,7 +9,6 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
-	"strconv"
 )
 
 //
@@ -23,7 +22,8 @@ type KeyValue struct {
 }
 
 // ByKey -> 数据排序, 用于 reduce_func 前同 key 数据的聚堆
-type ByKey []mr.KeyValue
+type ByKey []KeyValue
+
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
@@ -41,7 +41,7 @@ func ihash(key string) int {
 // CallTaskDone -> 任务完成时，向 master 汇报
 func CallTaskDone(args *TaskDoneArgs, taskInfo *TaskInfo) {
 	err := call("Master.TaskDone", &args, &taskInfo)
-	if err != nil {
+	if err != true {
 		log.Fatal("call task done err : %v", err)
 	}
 }
@@ -63,8 +63,8 @@ func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 	}
 	file.Close()
 
-    // 执行并存储结果（存为临时文件）
-	kva := mapf(fileName, string(content))
+	// 执行并存储结果（存为临时文件）
+	kva := mapf(fileName)
 	nReduces := taskInfo.NReduces
 	tmpFiles := make([]*os.File, nReduces)
 	encoderFiles := make([]*json.Encoder, nReduces)
@@ -84,7 +84,7 @@ func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 		TmpFiles:  tmpFiles,
 	}
 	callErr := call("Master.TaskDone", &taskDoneArgs, &taskInfo)
-	if callErr != nil {
+	if callErr != true {
 		log.Fatal("call task done err : %v", callErr)
 	}
 }
@@ -143,10 +143,10 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 		TaskType:  ReduceTask,
 		NReduces:  nReduces,
 		PartIndex: partIndex,
-		TmpFiles:  [tmpFile],
+		TmpFiles:  []string{tmpFile},
 	}
 	callErr := call("Master.TaskDone", &taskDoneArgs, &taskInfo)
-	if callErr != nil {
+	if callErr != true {
 		log.Fatal("call task done err : %v", callErr)
 	}
 }
@@ -173,7 +173,8 @@ func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
 
 //
 // 主工作流程
-// 
+//
+
 // Worker -> worker 的主工作流程，包括任务请求，任务执行
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {

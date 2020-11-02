@@ -2,7 +2,7 @@ package mr
 
 import "strconv"
 
-func isElementInSLice(ele int, s []int) {
+func isElementInSLice(ele int, s []int) (judge bool) {
 	for _, v := range s {
 		if v == ele {
 			return true
