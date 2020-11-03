@@ -98,7 +98,7 @@ func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
 
 // SendTask -> Master做任务调度的流程
 // ->先发 map,待 map 全部完成后才开始 reduce,当 reduce 全部完成时,发送状态为已完成的任务
-func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskInfo *TaskInfo) {
+func (m *Master) SendTask(args *RequestTaskArgs, reply *TaskInfo) error {
 	m.lock()
 	defer m.unlock()
 
@@ -106,16 +106,18 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskI
 		taskInfo := m.mapIdleQueue.Pop()
 		taskInfo.getStartTime()
 		m.mapRunningQueue.Push(taskInfo)
+		*reply = taskInfo
 		fmt.Println("sent map task of %v", taskInfo.FileName)
-		return &taskInfo
+		return nil
 	}
 
 	if len(m.finishedPartIndexes) < m.NReduces {
 		taskInfo := m.reduceIdleQueue.Pop()
 		taskInfo.getStartTime()
 		m.reduceRunningQueue.Push(taskInfo)
+		*reply = taskInfo
 		fmt.Println("sent reduce task of %v", taskInfo.PartIndex)
-		return &taskInfo
+		return nil
 	}
 
 	if len(m.finishedFileIndexes) == m.NFiles && len(m.finishedPartIndexes) == m.NReduces {
@@ -124,13 +126,15 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskI
 			TaskState: TaskFinished,
 		}
 		m.isDone = true
-		return &taskInfo
+		*reply = taskInfo
+		return nil
 	} else {
 		taskInfo := TaskInfo{
 			TaskType:  EmptyTask,
 			TaskState: TaskRunning,
 		}
-		return &taskInfo
+		*reply = taskInfo
+		return nil
 	}
 }
 
@@ -152,7 +156,7 @@ func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo TaskInfo) error {
 		// 文件重命名
 		for i := 0; i < args.NReduces; i++ {
 			name := makeMapOutFileName(args.FileIndex, i)
-			os.Rename(args.TmpFiles[i], name)
+			os.Rename(args.TmpFiles[i].Name(), name)
 		}
 
 		fmt.Println("map task of %v is done", args.FileIndex)

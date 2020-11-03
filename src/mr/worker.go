@@ -46,8 +46,16 @@ func CallTaskDone(args *TaskDoneArgs, taskInfo *TaskInfo) {
 	}
 }
 
+// CallSendTask -> 请求任务
+func CallSendTask() *TaskInfo {
+	args := RequestTaskArgs{}
+	reply := TaskInfo{}
+	call("Master.SendTask", &args, &reply)
+	return &reply
+}
+
 // mapWorker 执行 mapworker 的工作流程
-func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
+func mapWorker(mapf func(string, string) []KeyValue, taskInfo *TaskInfo) {
 	fileName := taskInfo.FileName
 	fileIndex := taskInfo.FileIndex
 	fmt.Println("start map task on %s", fileName)
@@ -92,6 +100,7 @@ func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	partIndex := taskInfo.PartIndex
 	nFiles := taskInfo.NInputFiles
+	nReduces := taskInfo.NReduces
 	fmt.Println("start reduce work on %v part", partIndex)
 
 	intermediate := []KeyValue{}
@@ -116,7 +125,9 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	// 执行并存储结果（临时文件）
 	sort.Sort(ByKey(intermediate))
 
-	tmpFile, err := ioutil.TemFile("", "tmp")
+	tmpFiles := make([]*os.File, 1)
+	tmpFile, err := ioutil.TempFile("", "mr-tmp-*")
+	tmpFiles[0] = tmpFile
 	if err != nil {
 		log.Fatal("create temp file err : %v", err)
 	}
@@ -124,7 +135,7 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	for i := 0; i < len(intermediate); {
 		key := intermediate[i].Key
 		j := i + 1
-		for j < len(intermediate) && intermediate[j].Key == Key {
+		for j < len(intermediate) && intermediate[j].Key == key {
 			j++
 		}
 
@@ -143,7 +154,7 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 		TaskType:  ReduceTask,
 		NReduces:  nReduces,
 		PartIndex: partIndex,
-		TmpFiles:  []string{tmpFile},
+		TmpFiles:  tmpFiles,
 	}
 	callErr := call("Master.TaskDone", &taskDoneArgs, &taskInfo)
 	if callErr != true {
@@ -156,7 +167,7 @@ func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
 	encoder := encoders[partIndex]
 
 	if encoder == nil {
-		tmpFile, err := ioutil.TemFile("", "tmp")
+		tmpFile, err := ioutil.TempFile("", "mr-tmp-*")
 		if err != nil {
 			log.Fatal("create temp file err : %v", err)
 		}
@@ -179,9 +190,7 @@ func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	for {
-		args := RequestTaskArgs{}
-		reply := RequestTaskReply{}
-		taskinfo := call("Master.SendTask", &args, &reply)
+		taskInfo := CallSendTask()
 		switch taskInfo.TaskType {
 		case MapTask:
 			mapWorker(mapf, taskInfo)

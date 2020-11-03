@@ -36,7 +36,7 @@ type TaskDoneArgs struct {
 
 	// map task done
 	FileIndex int
-	TmpFiles  []string // 对于 map task，[]中多个值，对于 reduce task，[]中一个值
+	TmpFiles  []*os.File // 对于 map task，[]中多个值，对于 reduce task，[]中一个值
 
 	// reduce task done
 	PartIndex     int
@@ -45,9 +45,6 @@ type TaskDoneArgs struct {
 
 //
 type RequestTaskArgs struct {
-}
-
-type RequestTaskReply struct {
 }
 
 // TaskQueue -> 存储任务队列
