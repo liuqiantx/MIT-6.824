@@ -43,7 +43,7 @@ type TaskDoneArgs struct {
 	TmpOutputFile string
 }
 
-//
+// RequestTaskArgs -> 请求任务时的参数结构
 type RequestTaskArgs struct {
 }
 
@@ -69,12 +69,14 @@ func (tq *TaskQueue) getLength() int {
 	return len(tq.TaskArray)
 }
 
+// Push ->　添加任务
 func (tq *TaskQueue) Push(taskInfo TaskInfo) {
 	tq.lock()
 	tq.TaskArray = append(tq.TaskArray, taskInfo)
 	tq.unlock()
 }
 
+// Pop -> 从任务队列中发出任务
 func (tq *TaskQueue) Pop() TaskInfo {
 	tq.lock()
 
@@ -92,6 +94,7 @@ func (tq *TaskQueue) Pop() TaskInfo {
 	return taskInfo
 }
 
+// Remove -> 移除任务队列中的指定任务
 func (tq *TaskQueue) Remove(fileIndex int, partIndex int) {
 	tq.lock()
 

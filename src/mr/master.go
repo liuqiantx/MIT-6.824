@@ -107,7 +107,7 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *TaskInfo) error {
 		taskInfo.getStartTime()
 		m.mapRunningQueue.Push(taskInfo)
 		*reply = taskInfo
-		fmt.Println("sent map task of %v", taskInfo.FileName)
+		fmt.Printf("sent map task of %v", taskInfo.FileName)
 		return nil
 	}
 
@@ -116,7 +116,7 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *TaskInfo) error {
 		taskInfo.getStartTime()
 		m.reduceRunningQueue.Push(taskInfo)
 		*reply = taskInfo
-		fmt.Println("sent reduce task of %v", taskInfo.PartIndex)
+		fmt.Printf("sent reduce task of %v", taskInfo.PartIndex)
 		return nil
 	}
 
@@ -127,15 +127,14 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *TaskInfo) error {
 		}
 		m.isDone = true
 		*reply = taskInfo
-		return nil
 	} else {
 		taskInfo := TaskInfo{
 			TaskType:  EmptyTask,
 			TaskState: TaskRunning,
 		}
 		*reply = taskInfo
-		return nil
 	}
+	return nil
 }
 
 // TaskDone -> worker 发送任务完成后 master 的操作逻辑
@@ -159,7 +158,7 @@ func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo TaskInfo) error {
 			os.Rename(args.TmpFiles[i].Name(), name)
 		}
 
-		fmt.Println("map task of %v is done", args.FileIndex)
+		fmt.Printf("map task of %v is done", args.FileIndex)
 	} else {
 		if isElementInSLice(args.PartIndex, m.finishedPartIndexes) {
 			return nil
@@ -172,7 +171,7 @@ func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo TaskInfo) error {
 		name := makeReduceOutFileName(args.PartIndex)
 		os.Rename(args.TmpOutputFile, name)
 
-		fmt.Println("reduce task of %v is done", args.PartIndex)
+		fmt.Printf("reduce task of %v is done", args.PartIndex)
 	}
 	return nil
 }
