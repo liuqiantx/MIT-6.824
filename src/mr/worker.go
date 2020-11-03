@@ -9,7 +9,6 @@ import (
 	"net/rpc"
 	"os"
 	"sort"
-	"strconv"
 )
 
 //
@@ -23,7 +22,8 @@ type KeyValue struct {
 }
 
 // ByKey -> 数据排序, 用于 reduce_func 前同 key 数据的聚堆
-type ByKey []mr.KeyValue
+type ByKey []KeyValue
+
 func (a ByKey) Len() int           { return len(a) }
 func (a ByKey) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a ByKey) Less(i, j int) bool { return a[i].Key < a[j].Key }
@@ -41,29 +41,37 @@ func ihash(key string) int {
 // CallTaskDone -> 任务完成时，向 master 汇报
 func CallTaskDone(args *TaskDoneArgs, taskInfo *TaskInfo) {
 	err := call("Master.TaskDone", &args, &taskInfo)
-	if err != nil {
-		log.Fatal("call task done err : %v", err)
+	if err != true {
+		log.Fatal("call task done err :　", err)
 	}
 }
 
+// CallSendTask -> 请求任务
+func CallSendTask() *TaskInfo {
+	args := RequestTaskArgs{}
+	reply := TaskInfo{}
+	call("Master.SendTask", &args, &reply)
+	return &reply
+}
+
 // mapWorker 执行 mapworker 的工作流程
-func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
+func mapWorker(mapf func(string, string) []KeyValue, taskInfo *TaskInfo) {
 	fileName := taskInfo.FileName
 	fileIndex := taskInfo.FileIndex
-	fmt.Println("start map task on %s", fileName)
+	fmt.Printf("start map task on %s", fileName)
 
 	// 打开并读文件
 	file, err := os.Open(fileName)
 	if err != nil {
-		log.Fatal("open file err : %v", err)
+		log.Fatal("open file err : ", err)
 	}
 	content, err := ioutil.ReadAll(file)
 	if err != nil {
-		log.Fatal("read file err : %v", err)
+		log.Fatal("read file err : ", err)
 	}
 	file.Close()
 
-    // 执行并存储结果（存为临时文件）
+	// 执行并存储结果（存为临时文件）
 	kva := mapf(fileName, string(content))
 	nReduces := taskInfo.NReduces
 	tmpFiles := make([]*os.File, nReduces)
@@ -72,7 +80,7 @@ func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 		storeKeyValue(kv, tmpFiles, encoderFiles)
 	}
 
-	for i, file := range tmpFiles {
+	for _, file := range tmpFiles {
 		file.Close()
 	}
 
@@ -84,15 +92,16 @@ func mapWorker(mapf func(string string) []KeyValue, taskInfo *TaskInfo) {
 		TmpFiles:  tmpFiles,
 	}
 	callErr := call("Master.TaskDone", &taskDoneArgs, &taskInfo)
-	if callErr != nil {
-		log.Fatal("call task done err : %v", callErr)
+	if callErr != true {
+		log.Fatal("call task done err : ", callErr)
 	}
 }
 
 func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	partIndex := taskInfo.PartIndex
 	nFiles := taskInfo.NInputFiles
-	fmt.Println("start reduce work on %v part", partIndex)
+	nReduces := taskInfo.NReduces
+	fmt.Printf("start reduce work on %v part", partIndex)
 
 	intermediate := []KeyValue{}
 
@@ -100,7 +109,7 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 		fileName := makeMapOutFileName(i, partIndex)
 		file, err := os.Open(fileName)
 		if err != nil {
-			log.Fatal("open file err : %v", err)
+			log.Fatal("open file err : ", err)
 		}
 		decoder := json.NewDecoder(file)
 		for {
@@ -116,15 +125,17 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 	// 执行并存储结果（临时文件）
 	sort.Sort(ByKey(intermediate))
 
-	tmpFile, err := ioutil.TemFile("", "tmp")
+	tmpFiles := make([]*os.File, 1)
+	tmpFile, err := ioutil.TempFile("", "mr-tmp-*")
+	tmpFiles[0] = tmpFile
 	if err != nil {
-		log.Fatal("create temp file err : %v", err)
+		log.Fatal("create temp file err : ", err)
 	}
 
 	for i := 0; i < len(intermediate); {
 		key := intermediate[i].Key
 		j := i + 1
-		for j < len(intermediate) && intermediate[j].Key == Key {
+		for j < len(intermediate) && intermediate[j].Key == key {
 			j++
 		}
 
@@ -143,11 +154,11 @@ func reduceWorker(reducef func(string, []string) string, taskInfo *TaskInfo) {
 		TaskType:  ReduceTask,
 		NReduces:  nReduces,
 		PartIndex: partIndex,
-		TmpFiles:  [tmpFile],
+		TmpFiles:  tmpFiles,
 	}
 	callErr := call("Master.TaskDone", &taskDoneArgs, &taskInfo)
-	if callErr != nil {
-		log.Fatal("call task done err : %v", callErr)
+	if callErr != true {
+		log.Fatal("call task done err : ", callErr)
 	}
 }
 
@@ -156,9 +167,9 @@ func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
 	encoder := encoders[partIndex]
 
 	if encoder == nil {
-		tmpFile, err := ioutil.TemFile("", "tmp")
+		tmpFile, err := ioutil.TempFile("", "mr-tmp-*")
 		if err != nil {
-			log.Fatal("create temp file err : %v", err)
+			log.Fatal("create temp file err : ", err)
 		}
 		tmpFiles[partIndex] = tmpFile
 		encoder = json.NewEncoder(tmpFile)
@@ -167,32 +178,31 @@ func storeKeyValue(kv KeyValue, tmpFiles []*os.File, encoders []*json.Encoder) {
 
 	err := encoder.Encode(kv)
 	if err != nil {
-		log.Fatal("json encode err : %v", err)
+		log.Fatal("json encode err : ", err)
 	}
 }
 
 //
 // 主工作流程
-// 
+//
+
 // Worker -> worker 的主工作流程，包括任务请求，任务执行
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 	for {
-		args := RequestTaskArgs{}
-		reply := RequestTaskReply{}
-		taskinfo := call("Master.SendTask", &args, &reply)
+		taskInfo := CallSendTask()
 		switch taskInfo.TaskType {
 		case MapTask:
 			mapWorker(mapf, taskInfo)
 		case ReduceTask:
-			reducef(reducef, taskInfo)
+			reduceWorker(reducef, taskInfo)
 		case EmptyTask:
 			if taskInfo.TaskState == TaskFinished {
 				fmt.Println("All task done")
-				return
 			} else {
 				fmt.Println("All task is running")
 			}
+			return
 		default:
 			panic("Invalid Task type")
 		}

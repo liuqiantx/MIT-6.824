@@ -72,7 +72,6 @@ func (m *Master) initMapTask(files []string, nReduce int) error {
 		newMapIdleTask := TaskInfo{
 			TaskType:    MapTask,
 			TaskState:   TaskIdle,
-			StartTime:   time.Time,
 			NInputFiles: len(files),
 			NReduces:    nReduce,
 			FileName:    file,
@@ -99,7 +98,7 @@ func (m *Master) initReduceTask(taskInfo *TaskInfo) error {
 
 // SendTask -> Master做任务调度的流程
 // ->先发 map,待 map 全部完成后才开始 reduce,当 reduce 全部完成时,发送状态为已完成的任务
-func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskInfo *TaskInfo) {
+func (m *Master) SendTask(args *RequestTaskArgs, reply *TaskInfo) error {
 	m.lock()
 	defer m.unlock()
 
@@ -107,16 +106,18 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskI
 		taskInfo := m.mapIdleQueue.Pop()
 		taskInfo.getStartTime()
 		m.mapRunningQueue.Push(taskInfo)
-		fmt.Println("sent map task of %v", taskInfo.FileName)
-		return &taskInfo
+		*reply = taskInfo
+		fmt.Printf("sent map task of %v", taskInfo.FileName)
+		return nil
 	}
 
 	if len(m.finishedPartIndexes) < m.NReduces {
 		taskInfo := m.reduceIdleQueue.Pop()
 		taskInfo.getStartTime()
 		m.reduceRunningQueue.Push(taskInfo)
-		fmt.Println("sent reduce task of %v", taskInfo.PartIndex)
-		return &taskInfo
+		*reply = taskInfo
+		fmt.Printf("sent reduce task of %v", taskInfo.PartIndex)
+		return nil
 	}
 
 	if len(m.finishedFileIndexes) == m.NFiles && len(m.finishedPartIndexes) == m.NReduces {
@@ -125,51 +126,52 @@ func (m *Master) SendTask(args *RequestTaskArgs, reply *RequestTaskReply) (taskI
 			TaskState: TaskFinished,
 		}
 		m.isDone = true
-		return &taskInfo
+		*reply = taskInfo
 	} else {
 		taskInfo := TaskInfo{
 			TaskType:  EmptyTask,
 			TaskState: TaskRunning,
 		}
-		return &taskInfo
+		*reply = taskInfo
 	}
+	return nil
 }
 
 // TaskDone -> worker 发送任务完成后 master 的操作逻辑
-func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo *TaskInfo) error {
+func (m *Master) TaskDone(args *TaskDoneArgs, taskInfo TaskInfo) error {
 	m.lock()
 	defer m.unlock()
 
 	if args.TaskType == MapTask {
-		if isElementInSLice(args.FileIndex, m.finishedFileIndexes) {
+		if isElementInSLice(args.FileIndex, m.finishedFileIndexes) == true {
 			return nil
 		}
 
 		// 更改任务所处队列，将文件索引添加至已完成队列
 		m.finishedFileIndexes = append(m.finishedFileIndexes, args.FileIndex)
-		m.mapFinishedQueue = append(m.mapFinishedQueue, taskInfo)
-		m.mapRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+		m.mapFinishedQueue.Push(taskInfo)
+		m.mapRunningQueue.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
 
 		// 文件重命名
 		for i := 0; i < args.NReduces; i++ {
 			name := makeMapOutFileName(args.FileIndex, i)
-			os.Rename(args.TmpFiles[i], name)
+			os.Rename(args.TmpFiles[i].Name(), name)
 		}
 
-		fmt.Println("map task of %v is done", args.FileIndex)
+		fmt.Printf("map task of %v is done", args.FileIndex)
 	} else {
 		if isElementInSLice(args.PartIndex, m.finishedPartIndexes) {
 			return nil
 		}
 
 		m.finishedPartIndexes = append(m.finishedPartIndexes, args.PartIndex)
-		m.reduceFinishedQueue = append(m.reduceFinishedQueue, taskInfo)
-		m.reduceRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+		m.reduceFinishedQueue.Push(taskInfo)
+		m.reduceRunningQueue.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
 
 		name := makeReduceOutFileName(args.PartIndex)
 		os.Rename(args.TmpOutputFile, name)
 
-		fmt.Println("reduce task of %v is done", args.PartIndex)
+		fmt.Printf("reduce task of %v is done", args.PartIndex)
 	}
 	return nil
 }
@@ -179,8 +181,8 @@ func (m *Master) AppendTimeOutQueue() {
 	for {
 		time.Sleep(time.Duration(time.Second * 10))
 
-		mapTimeoutQueue = m.mapRunningQueue.getTimeOutQueue()
-		if mapTimeoutQueue.getLength() > 0 {
+		mapTimeoutQueue := m.mapRunningQueue.getTimeOutQueue()
+		if len(mapTimeoutQueue) > 0 {
 
 			m.mapIdleQueue.lock()
 			m.mapIdleQueue.TaskArray = append(m.mapIdleQueue.TaskArray, mapTimeoutQueue...)
@@ -188,14 +190,14 @@ func (m *Master) AppendTimeOutQueue() {
 
 			m.mapRunningQueue.lock()
 			for _, taskInfo := range mapTimeoutQueue {
-				m.mapRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+				m.mapRunningQueue.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
 			}
 			m.mapRunningQueue.unlock()
 
 		}
 
-		reduceTimeoutQueue = m.reduceRunningQueue.getTimeOutQueue()
-		if reduceTimeoutQueue.getLength() > 0 {
+		reduceTimeoutQueue := m.reduceRunningQueue.getTimeOutQueue()
+		if len(reduceTimeoutQueue) > 0 {
 
 			m.reduceIdleQueue.lock()
 			m.reduceIdleQueue.TaskArray = append(m.reduceIdleQueue.TaskArray, reduceTimeoutQueue...)
@@ -203,7 +205,7 @@ func (m *Master) AppendTimeOutQueue() {
 
 			m.reduceRunningQueue.lock()
 			for _, taskInfo := range reduceTimeoutQueue {
-				m.reduceRunningQueue.remove(taskInfo.FileIndex, taskInfo.PartIndex)
+				m.reduceRunningQueue.Remove(taskInfo.FileIndex, taskInfo.PartIndex)
 			}
 			m.reduceRunningQueue.unlock()
 		}
