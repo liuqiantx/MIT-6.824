@@ -24,7 +24,37 @@ import "../labrpc"
 // import "bytes"
 // import "../labgob"
 
+// １．单个 raft 需要维护哪些属性？
+// 2. raft 哪些属性需要被持久化？
+// 2.1 如何持久化，从 raft 读取哪些数据？只是读取，然后保存就行了吗？是否还需要其他操作？
+// 2.2 如何恢复 raft 中持久化的数据，要恢复哪些？ -> 从 persist 中读取，然后填充到 raft 对应属性下
+// 3. log entry 结构如何？是否需要考虑
+// 4. 关于投票
+// 4.1 申请投票需要准备哪些信息给投票人看？
+// 4.2 投票人会给申请人回复什么信息？ -> 我是谁，我的结果是，我是哪一期的？
+// 4.3 申请投票的详细流程如何？
+// 4.4 流程中网络不稳定可能导致哪些问题？
+// 5. test 后如何杀死 raft server
+// 5.1 如何算杀死？ -> raft dead 属性的值属于 dead
+// 5.2 杀死后　raft server 有哪些属性会发生改变
+// 5.3 测试代码中哪些时候用到了 杀死 raft
+// 6. 创建新的 raft server
+// 6.1 创建流程如何？
+// 6.2 若是基于给定的缓存创建，怎么做？
+// 6.3 对于需要较长时间的步骤，需要用到 goroutine
 
+//
+// 常量
+//
+const (
+	Candidate = 0
+	Follower = 1
+	Leader = 2
+	HeartBeatInterval = 100
+	ElectionTimeout = 150
+	ElectionRandomTimeRange = 150
+
+)
 
 //
 // as each Raft peer becomes aware that successive log entries are
@@ -37,15 +67,11 @@ import "../labrpc"
 // snapshots) on the applyCh; at that point you can add fields to
 // ApplyMsg, but set CommandValid to false for these other uses.
 //
-type ApplyMsg struct {
-	CommandValid bool
-	Command      interface{}
-	CommandIndex int
-}
+
 
 //
-// A Go object implementing a single Raft peer.
-//
+// raft 常规操作，如状态持久化，获取状态等
+// 
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
@@ -85,10 +111,6 @@ func (rf *Raft) persist() {
 	// rf.persister.SaveRaftState(data)
 }
 
-
-//
-// restore previously persisted state.
-//
 func (rf *Raft) readPersist(data []byte) {
 	if data == nil || len(data) < 1 { // bootstrap without any state?
 		return
@@ -107,67 +129,6 @@ func (rf *Raft) readPersist(data []byte) {
 	//   rf.yyy = yyy
 	// }
 }
-
-
-
-
-//
-// example RequestVote RPC arguments structure.
-// field names must start with capital letters!
-//
-type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
-}
-
-//
-// example RequestVote RPC reply structure.
-// field names must start with capital letters!
-//
-type RequestVoteReply struct {
-	// Your data here (2A).
-}
-
-//
-// example RequestVote RPC handler.
-//
-func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B).
-}
-
-//
-// example code to send a RequestVote RPC to a server.
-// server is the index of the target server in rf.peers[].
-// expects RPC arguments in args.
-// fills in *reply with RPC reply, so caller should
-// pass &reply.
-// the types of the args and reply passed to Call() must be
-// the same as the types of the arguments declared in the
-// handler function (including whether they are pointers).
-//
-// The labrpc package simulates a lossy network, in which servers
-// may be unreachable, and in which requests and replies may be lost.
-// Call() sends a request and waits for a reply. If a reply arrives
-// within a timeout interval, Call() returns true; otherwise
-// Call() returns false. Thus Call() may not return for a while.
-// A false return can be caused by a dead server, a live server that
-// can't be reached, a lost request, or a lost reply.
-//
-// Call() is guaranteed to return (perhaps after a delay) *except* if the
-// handler function on the server side does not return.  Thus there
-// is no need to implement your own timeouts around Call().
-//
-// look at the comments in ../labrpc/labrpc.go for more details.
-//
-// if you're having trouble getting RPC to work, check that you've
-// capitalized all field names in structs passed over RPC, and
-// that the caller passes the address of the reply struct with &, not
-// the struct itself.
-//
-func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
-	return ok
-}
-
 
 //
 // the service using Raft (e.g. a k/v server) wants to start
@@ -214,6 +175,133 @@ func (rf *Raft) killed() bool {
 	z := atomic.LoadInt32(&rf.dead)
 	return z == 1
 }
+
+//
+// 关于 leader election 
+//
+//
+// example code to send a RequestVote RPC to a server.
+// server is the index of the target server in rf.peers[].
+// expects RPC arguments in args.
+// fills in *reply with RPC reply, so caller should
+// pass &reply.
+// the types of the args and reply passed to Call() must be
+// the same as the types of the arguments declared in the
+// handler function (including whether they are pointers).
+//
+// The labrpc package simulates a lossy network, in which servers
+// may be unreachable, and in which requests and replies may be lost.
+// Call() sends a request and waits for a reply. If a reply arrives
+// within a timeout interval, Call() returns true; otherwise
+// Call() returns false. Thus Call() may not return for a while.
+// A false return can be caused by a dead server, a live server that
+// can't be reached, a lost request, or a lost reply.
+//
+// Call() is guaranteed to return (perhaps after a delay) *except* if the
+// handler function on the server side does not return.  Thus there
+// is no need to implement your own timeouts around Call().
+//
+// look at the comments in ../labrpc/labrpc.go for more details.
+//
+// if you're having trouble getting RPC to work, check that you've
+// capitalized all field names in structs passed over RPC, and
+// that the caller passes the address of the reply struct with &, not
+// the struct itself.
+//
+type RequestVoteArgs struct {
+	// Your data here (2A, 2B).
+}
+
+type RequestVoteReply struct {
+	// Your data here (2A).
+}
+
+func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
+	// Your code here (2A, 2B).
+}
+
+func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
+	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	return ok
+}
+
+func isOutOfDate(args *RequestVoteArgs, rf *Raft) bool {
+	// 5.4.1 选举限制的判断
+	return false
+}
+
+func (rf *Raft) changeRaftState(state int) {
+	// 状态切换 switch 
+}
+
+func (rf *Raft) isElectionTimeout() bool {
+	// 
+	return false
+}
+
+func (rf *Raft) startLeaderElection() {
+	// 长流程
+}
+
+func (rf *Raft) runLeader() {
+	// election 时 leader 要做的事
+}
+
+func (rf *Raft) runCandidate() {
+	// 注意都需要有休息时间
+}
+
+func (rf *Raft) runFollower() {
+	//
+}
+
+func (rf *Raft) Run(){
+	// 
+}
+
+
+// 
+// 关于 log replication
+// 
+type LogEntry struct {
+	// 
+}
+
+type ApplyMsg struct {
+	CommandValid bool
+	Command      interface{}
+	CommandIndex int
+}
+
+type AppendLogEntriesArgs struct {
+	// 
+}
+
+type AppendLogEntriesReply struct {
+	// 
+}
+
+func (rf *Raft) AppendLogEntries(args *AppendLogEntriesArgs, reply *AppendLogEntriesReply) {
+	// 超长的添加流程
+}
+
+func (rf *Raft) sendAppendLogEntries(server int, args *AppendLogEntriesArgs, reply *AppendLogEntriesReply) bool {
+	//
+	return false
+}
+
+func (rf *Raft) SendApplyMsg() {
+	// 发送 log 中的未应用的 msgs
+}
+
+
+//
+// 共有流程
+//
+func (rf *Raft) sendHeartbeat() {
+	// 超长流程
+}
+
 
 //
 // the service or tester wants to create a Raft server. the ports
