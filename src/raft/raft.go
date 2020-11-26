@@ -17,9 +17,12 @@ package raft
 //   in the same server.
 //
 
-import "sync"
-import "sync/atomic"
-import "../labrpc"
+import (
+	"sync"
+	"sync/atomic"
+
+	"../labrpc"
+)
 
 // import "bytes"
 // import "../labgob"
@@ -47,13 +50,12 @@ import "../labrpc"
 // 常量
 //
 const (
-	Candidate = 0
-	Follower = 1
-	Leader = 2
-	HeartBeatInterval = 100
-	ElectionTimeout = 150
+	Candidate               = 0
+	Follower                = 1
+	Leader                  = 2
+	HeartBeatInterval       = 100
+	ElectionTimeout         = 150
 	ElectionRandomTimeRange = 150
-
 )
 
 //
@@ -68,10 +70,9 @@ const (
 // ApplyMsg, but set CommandValid to false for these other uses.
 //
 
-
 //
 // raft 常规操作，如状态持久化，获取状态等
-// 
+//
 type Raft struct {
 	mu        sync.Mutex          // Lock to protect shared access to this peer's state
 	peers     []*labrpc.ClientEnd // RPC end points of all peers
@@ -79,10 +80,18 @@ type Raft struct {
 	me        int                 // this peer's index into peers[]
 	dead      int32               // set by Kill()
 
-	// Your data here (2A, 2B, 2C).
-	// Look at the paper's Figure 2 for a description of what
-	// state a Raft server must maintain.
+	// 需持久化的
+	currentTerm int
+	votedFor    int
+	log         []*LogEntry
 
+	// leader 容易丢失的
+	matchIndex []int
+	nextIndex  []int
+
+	// 所有 server 都容易丢失的
+	commitIndex int
+	lastApplied int
 }
 
 // return currentTerm and whether this server
@@ -151,7 +160,6 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	// Your code here (2B).
 
-
 	return index, term, isLeader
 }
 
@@ -177,7 +185,7 @@ func (rf *Raft) killed() bool {
 }
 
 //
-// 关于 leader election 
+// 关于 leader election
 //
 //
 // example code to send a RequestVote RPC to a server.
@@ -209,11 +217,11 @@ func (rf *Raft) killed() bool {
 // the struct itself.
 //
 type RequestVoteArgs struct {
-	// Your data here (2A, 2B).
+	//
 }
 
 type RequestVoteReply struct {
-	// Your data here (2A).
+	//
 }
 
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
@@ -231,11 +239,11 @@ func isOutOfDate(args *RequestVoteArgs, rf *Raft) bool {
 }
 
 func (rf *Raft) changeRaftState(state int) {
-	// 状态切换 switch 
+	// 状态切换 switch
 }
 
 func (rf *Raft) isElectionTimeout() bool {
-	// 
+	//
 	return false
 }
 
@@ -255,16 +263,15 @@ func (rf *Raft) runFollower() {
 	//
 }
 
-func (rf *Raft) Run(){
-	// 
+func (rf *Raft) Run() {
+	//
 }
 
-
-// 
+//
 // 关于 log replication
-// 
+//
 type LogEntry struct {
-	// 
+	//
 }
 
 type ApplyMsg struct {
@@ -274,11 +281,11 @@ type ApplyMsg struct {
 }
 
 type AppendLogEntriesArgs struct {
-	// 
+	//
 }
 
 type AppendLogEntriesReply struct {
-	// 
+	//
 }
 
 func (rf *Raft) AppendLogEntries(args *AppendLogEntriesArgs, reply *AppendLogEntriesReply) {
@@ -294,14 +301,12 @@ func (rf *Raft) SendApplyMsg() {
 	// 发送 log 中的未应用的 msgs
 }
 
-
 //
 // 共有流程
 //
 func (rf *Raft) sendHeartbeat() {
 	// 超长流程
 }
-
 
 //
 // the service or tester wants to create a Raft server. the ports
@@ -325,7 +330,6 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
-
 
 	return rf
 }
