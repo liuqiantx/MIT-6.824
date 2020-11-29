@@ -18,18 +18,18 @@
     - [x] Map func & Reduce func
     - [x] Master workflow & Worker workflow
     - [x] handle crash & timeout
-- [ ] Raft 截止日期: 2020.11.30
-  - [ ] papers
+- [x] Raft 截止日期: 2020.11.30
+  - [x] papers
     - [x] In Search of an Understandable Consensus Algorithm (Extended Version)
-    - [ ] ZooKeeper: Wait-free coordination for Internet-scale systems
-  - [ ] lectures
+    - [x] ZooKeeper: Wait-free coordination for Internet-scale systems
+  - [x] lectures
     - [x] lec_5 Go, Threads and Raft
     - [x] lec_6 & lec_7 Fault Tolerance
     - [x] lec_8 Zookeeper
     - [ ] lec_9 More Replication
-  - [ ] lab_2 task
-    - [ ] lab_2a task
-    - [ ] lab_2b task
-    - [ ] lab_2c task
+  - [x] lab_2 task
+    - [x] lab_2a task
+    - [x] lab_2b task
+    - [x] lab_2c task
 - [ ] KV_Raft
 - [ ] Sharded KV
