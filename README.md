@@ -31,5 +31,5 @@
     - [x] lab_2a task
     - [x] lab_2b task
     - [x] lab_2c task
-- [ ] KV_Raft
+- [ ] KV_Raft 截止日期： 2020,12,31
 - [ ] Sharded KV
