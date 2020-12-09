@@ -26,14 +26,14 @@
     - [x] lec_5 Go, Threads and Raft
     - [x] lec_6 & lec_7 Fault Tolerance
     - [x] lec_8 Zookeeper
-    - [ ] lec_9 More Replication
+    - [x] lec_9 More Replication
   - [x] lab_2 task
     - [x] lab_2a task
     - [x] lab_2b task
     - [x] lab_2c task
 - [ ] KV_Raft 截止日期： 2020,12,31
   - [ ] papers
-    - [ ] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
+    - [x] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
     - [ ] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
     - [ ] Frangipani: A Scalable Distributed File System
     - [ ] Spanner: Google’s Globally-Distributed Database

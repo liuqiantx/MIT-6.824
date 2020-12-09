@@ -358,6 +358,7 @@ type ApplyMsg struct {
 // 所有被 committed 的日志都会转换成 applyMsg，然后塞进 applyCh,等待被应用，因此所有命令进来就需要被注册，
 // 之后可以通过注册时所得到的信息，找到每一条命令，然后执行，然后返回给 client 该消息已经被执行，因为所有的消息会存放在堆栈中，
 // 只有确定执行了，server 可以通过 msg 中包含的信息，找到对应的 client，并给其回复
+
 type AppendLogEntriesArgs struct {
 	Term         int        // 领导者所处的朝代
 	LeaderId     int        // 当客户发错消息给下属时,下属可以告诉客户领导是谁
