@@ -31,17 +31,17 @@
     - [x] lab_2a task
     - [x] lab_2b task
     - [x] lab_2c task
-- [ ] KV_Raft 截止日期： 2020,12,31
+- [ ] KV_Raft 截止日期： 2020,12,31 -> 2021,01,15
   - [ ] papers
     - [x] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
-    - [ ] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
-    - [ ] Frangipani: A Scalable Distributed File System
+    - [x] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
+    - [x] Frangipani: A Scalable Distributed File System
     - [ ] Spanner: Google’s Globally-Distributed Database
     - [ ] No compromises: distributed transactions with consistency, availability, and performance
   - [ ] lectures
-    - [ ] lec_10 Cloud Replicated DB
-    - [ ] lec_11 Cache Consistency:
-    - [ ] lec_12 Distributed Transactions,
+    - [x] lec_10 Cloud Replicated DB
+    - [x] lec_11 Cache Consistency:
+    - [x] lec_12 Distributed Transactions,
     - [ ] lec_13 Spanner
     - [ ] lec_14 Optimistic Concurrency Contro
   - [ ] lab_3 task
