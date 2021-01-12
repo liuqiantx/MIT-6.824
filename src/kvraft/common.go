@@ -14,13 +14,21 @@ const (
 
 type Err string
 
-// Put or Append
-type PutAppendArgs struct {
+type RaftKVCommand struct {
+	Op    string
 	Key   string
 	Value string
-	Op    string // "Put" or "Append"
+	ClerkId    int64
+	RequestSeq int64
+}
+
+// Put or Append
+type PutAppendArgs struct {
+	Op    string
+	Key   string
+	Value string
 	RequestSeq   int64
-	ClientId  int64
+	ClerkId  int64
 }
 
 type PutAppendReply struct {
@@ -31,7 +39,7 @@ type PutAppendReply struct {
 type GetArgs struct {
 	Key string
 	RequestSeq   int64
-	ClientId     int64
+	ClerkId     int64
 
 }
 

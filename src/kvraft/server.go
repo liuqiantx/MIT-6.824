@@ -46,7 +46,12 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 	data  map[string]string
 	persister  *raft.Persister
-	lastCommit  int // 上次提交的日志索引
+
+	latestAppliedLogIndex  int // 最近一次应用的日志的索引
+	resCh   map[int]chan raft.ApplyMsg  // 日志索引 -> 日志应用管道
+	clerkLatestReq   map[int64]RaftKVCommand   // 记住各个 clerk 最近的请求信息
+	killCh   chan bool
+
 }
 
 // 扩充状态变量，使状态变量长度为 client 数量
@@ -83,6 +88,51 @@ func (kv *KVServer) Kill() {
 func (kv *KVServer) killed() bool {
 	z := atomic.LoadInt32(&kv.dead)
 	return z == 1
+}
+
+// Lab 3b
+//
+// 关于快照
+// 
+// 要保存的快照信息
+type SnapshotData struct {
+	Data  map[string]string
+	LatestAppliedLogIndex  int
+	LatestRequests   map[int64]RaftKVCommand
+}
+
+func (kv *KVServer) SaveSnapshot(idx int) {
+	if kv.persister.RaftStateSize() < kv.maxraftstate || kv.maxraftstate == -1 {
+		return
+	}
+	fmt.Printf("%v start saving snapshot, raft size is %v", kv.me, kv.persister.RaftStateSize())
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	snapshotData := SnapshotData{
+		Data: kv.data,
+		LatestAppliedLogIndex : kv.latestAppliedLogIndex,
+		LatestRequests: clerkLatestReq,
+	}
+	err := e.Encode(snapshotData)
+	if err != nil {
+		panic(err)
+	}
+	kv.rf.DiscardPreviousLog(kv.latestAppliedLogIndex, buf.Bytes())
+}
+
+func (kv *KVServer) ApplySnapshot(data []byte) {
+	if len(data) < 1 || data == nil {
+		return
+	}
+	snapshotData := SnapshotData{}
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	err := d.Decode(&snapshotData)
+
+	fmt.Printf("%v start reading snapshot ...", kv.me)
+	kv.data = snapshotData.Data
+	kv.latestAppliedLogIndex = snapshotData.LatestAppliedLogIndex
+	kv.clerkLatestReq = snapshotData.LatestRequests
 }
 
 //
