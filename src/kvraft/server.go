@@ -19,12 +19,23 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 }
 
 
+const (
+	GET  = "Get"
+	PUT  = "Put"
+	APPEND = "Append"
+)
+
+// 具体操作内容
 type Op struct {
-	// Your definitions here.
-	// Field names must start with capital letters,
-	// otherwise RPC will break.
+	Method  string
+	Key     string
+	Value   string
+	ClientId  int64
+	MsgId     int64
+	RequestSeq   int64
 }
 
+// KVServer: 对数据应用操作；感知重复的 client 请求
 type KVServer struct {
 	mu      sync.Mutex
 	me      int
@@ -33,13 +44,20 @@ type KVServer struct {
 	dead    int32 // set by Kill()
 
 	maxraftstate int // snapshot if log grows this big
-
-	// Your definitions here.
+	data  map[string]string
+	persister  *raft.Persister
+	lastCommit  int // 上次提交的日志索引
 }
 
+// 扩充状态变量，使状态变量长度为 client 数量
+// 指定 idx 线程 等待
+// 启动指定 idx 的线程
 
+// 更新 clerks 提交的日志
+// 若请求不连续，则不更新
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+	// 当 kvserver 不属于多数服务器，则不应该完成 Get()
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
@@ -94,6 +112,9 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+
+	// 等待 raft 完成所有命令
+	// 在向 raft log 中提交日志时（PutAppend & Get），需继续读 applyCh 中的命令，注意死锁
 
 	// You may need initialization code here.
 
