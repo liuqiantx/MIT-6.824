@@ -44,8 +44,8 @@
     - [x] lec_12 Distributed Transactions,
     - [x] lec_13 Spanner
     - [x] lec_14 Optimistic Concurrency Contro
-  - [ ] lab_3 task
-    - [ ] lab_3a task
+  - [x] lab_3 task
+    - [x] lab_3a task
     - [x] lab_3b task
   - [ ] exams -> 问题较多，需要重新复习后再继续，下一步任务为前面几个月的复习
     - [ ] 2020 Q1 & Q2
