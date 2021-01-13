@@ -19,7 +19,7 @@ type RaftKVCommand struct {
 	Key   string
 	Value string
 	ClerkId    int64
-	RequestSeq int64
+	MsgId int64
 }
 
 // Put or Append
@@ -27,7 +27,7 @@ type PutAppendArgs struct {
 	Op    string
 	Key   string
 	Value string
-	RequestSeq   int64
+	MsgId   int64
 	ClerkId  int64
 }
 
@@ -38,7 +38,7 @@ type PutAppendReply struct {
 
 type GetArgs struct {
 	Key string
-	RequestSeq   int64
+	MsgId   int64
 	ClerkId     int64
 
 }
@@ -47,4 +47,9 @@ type GetReply struct {
 	Err   Err
 	Value string
 	IsLeader  bool
+}
+
+type NotifyMsg struct {
+	Err Err
+	Value string
 }

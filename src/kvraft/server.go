@@ -7,6 +7,8 @@ import (
 	"../raft"
 	"sync"
 	"sync/atomic"
+	"bytes"
+	"time"
 )
 
 const Debug = 0
@@ -29,7 +31,7 @@ const (
 type Op struct {
 	Method  string
 	Key     string
-	Value   string
+	Value    string
 	ClientId  int64
 	MsgId     int64
 	RequestSeq   int64
@@ -47,26 +49,127 @@ type KVServer struct {
 	data  map[string]string
 	persister  *raft.Persister
 
-	latestAppliedLogIndex  int // 最近一次应用的日志的索引
-	resCh   map[int]chan raft.ApplyMsg  // 日志索引 -> 日志应用管道
-	clerkLatestReq   map[int64]RaftKVCommand   // 记住各个 clerk 最近的请求信息
-	killCh   chan bool
-
+	lastApplied map[int64]int64  // 最近一次的应用记录
+	notifyData    map[int64]chan NotifyMsg
 }
 
-// 扩充状态变量，使状态变量长度为 client 数量
-// 指定 idx 线程 等待
-// 启动指定 idx 的线程
+// 发送任务给 raft
+func (kv *KVServer) SendOpToRaft(op Op) (res NotifyMsg) {
+	waitTimer := time.NewTimer(WaitTimeout)
+	defer waitTimer.Stop()
+
+	_, _, isLeader := kv.rf.Start(op)
+	if !isLeader {
+		DPrintf("%v isn't leader, fail start ...\n", kv.me)
+		res.Err = ErrWrongLeader
+		return 
+	}
+
+	kv.mu.Lock()
+	ch := make(chan NotifyMsg)
+	kv.notifyData[op.RequestSeq] = ch
+	kv.mu.Unlock()
+
+	select {
+	case res =<- ch:
+		DPrintf("%v finish apply %v ...\n", kv.me, op)
+		kv.mu.Lock()
+		delete(kv.notifyData, op.RequestSeq)
+		kv.mu.Unlock()
+		return
+	case <- waitTimer.C:
+		DPrintf("%v wait timeout...\n", kv.me)
+		kv.mu.Lock()
+		delete(kv.notifyData, op.RequestSeq)
+		kv.mu.Unlock()
+		res.Err = ErrTimeout
+		return
+	}
+}
 
 // 更新 clerks 提交的日志
 // 若请求不连续，则不更新
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
-	// Your code here.
-	// 当 kvserver 不属于多数服务器，则不应该完成 Get()
+	DPrintf("%v receive Get : %v from %v \n", kv.me, args.Key, args.ClerkId)
+	_, isLeader := kv.rf.GetState()
+	if !isLeader {
+		reply.Err = ErrWrongLeader
+		reply.IsLeader = false
+		return
+	}
+
+	operation := Op{
+		Method: GET,
+		Key: args.Key,
+		ClientId: args.ClerkId,
+		MsgId: args.MsgId,
+		RequestSeq: nrand(),
+	}
+
+	res := kv.SendOpToRaft(operation)
+	reply.Err = res.Err
+	if res.Err != ErrWrongLeader {
+		reply.IsLeader = false
+	}
+	// todo: 当 kvserver 不属于多数服务器，则不应该完成 Get()
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
-	// Your code here.
+	DPrintf("%v receive PutAppend : %v from %v \n", kv.me, args.Key, args.ClerkId)
+	// 仅读取操作必须是 leader
+
+	operation := Op{
+		Method: args.Op,
+		Key: args.Key,
+		Value: args.Value,
+		ClientId: args.ClerkId,
+		MsgId: args.MsgId,
+		RequestSeq: nrand(),
+	}
+	
+	res := kv.SendOpToRaft(operation)
+	reply.Err = res.Err
+}
+
+func (kv *KVServer) WaitApplyCh() {
+	DPrintf("%v is waiting for applyCh ... \n", kv.me)
+	for msg := range kv.applyCh {
+		if !msg.CommandValid {
+			kv.mu.Lock()
+			kv.ApplySnapshot(kv.persister.ReadSnapshot())
+			kv.mu.Unlock()
+			continue
+		}
+
+		operation := msg.Command.(Op)
+		var repeated bool
+		if lastMsgId, ok := kv.lastApplied[operation.ClientId]; ok {
+			if lastMsgId == operation.MsgId {
+				DPrintf("%v get receive repeated msg ... \n", kv.me)
+				repeated = true
+			}
+		} else {
+			repeated = false
+		}
+
+		kv.mu.Lock()
+		if !repeated {
+			if operation.Method == PUT {
+				kv.data[operation.Key] = operation.Value
+			} else if operation.Method == APPEND {
+				kv.data[operation.Key] += operation.Value
+			}
+		}
+
+		kv.SaveSnapshot(msg.CommandIndex)
+		if ch, ok := kv.notifyData[operation.RequestSeq]; ok {
+			ch <- NotifyMsg{
+				Err: OK,
+				Value: kv.data[operation.Key],
+			}
+		}
+		kv.mu.Unlock()
+	}
 }
 
 //
@@ -90,49 +193,40 @@ func (kv *KVServer) killed() bool {
 	return z == 1
 }
 
-// Lab 3b
 //
-// 关于快照
+// 关于快照 Lab 3b
 // 
-// 要保存的快照信息
-type SnapshotData struct {
-	Data  map[string]string
-	LatestAppliedLogIndex  int
-	LatestRequests   map[int64]RaftKVCommand
-}
-
 func (kv *KVServer) SaveSnapshot(idx int) {
 	if kv.persister.RaftStateSize() < kv.maxraftstate || kv.maxraftstate == -1 {
 		return
 	}
-	fmt.Printf("%v start saving snapshot, raft size is %v", kv.me, kv.persister.RaftStateSize())
+	DPrintf("%v start saving snapshot, raft size is %v", kv.me, kv.persister.RaftStateSize())
 	w := new(bytes.Buffer)
 	e := labgob.NewEncoder(w)
-	snapshotData := SnapshotData{
-		Data: kv.data,
-		LatestAppliedLogIndex : kv.latestAppliedLogIndex,
-		LatestRequests: clerkLatestReq,
-	}
-	err := e.Encode(snapshotData)
-	if err != nil {
+	if err := e.Encode(kv.data); err != nil {
 		panic(err)
 	}
-	kv.rf.DiscardPreviousLog(kv.latestAppliedLogIndex, buf.Bytes())
+	if err := e.Encode(kv.lastApplied); err != nil {
+		panic(err)
+	}
+	kv.rf.DiscardPreviousLog(idx, w.Bytes())
 }
 
 func (kv *KVServer) ApplySnapshot(data []byte) {
 	if len(data) < 1 || data == nil {
 		return
 	}
-	snapshotData := SnapshotData{}
+	DPrintf("%v start reading snapshot ...", kv.me)
 	r := bytes.NewBuffer(data)
 	d := labgob.NewDecoder(r)
-	err := d.Decode(&snapshotData)
-
-	fmt.Printf("%v start reading snapshot ...", kv.me)
-	kv.data = snapshotData.Data
-	kv.latestAppliedLogIndex = snapshotData.LatestAppliedLogIndex
-	kv.clerkLatestReq = snapshotData.LatestRequests
+	var lastApplied map[int64]int64
+	var kvdata map[string]string
+	if d.Decode(&kvdata) != nil || d.Decode(&lastApplied) != nil {
+		panic("read snapshot err")
+	} else {
+		kv.lastApplied = lastApplied
+		kv.data = kvdata
+	}
 }
 
 //
@@ -157,16 +251,16 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv := new(KVServer)
 	kv.me = me
 	kv.maxraftstate = maxraftstate
-
-	// You may need initialization code here.
-
 	kv.applyCh = make(chan raft.ApplyMsg)
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
+	kv.dead = 0
+	kv.data = make(map[string]string)
+	kv.persister = persister
+	kv.lastApplied = map[int64]int64{}
+	kv.notifyData = map[int64]chan NotifyMsg{}
 
-	// 等待 raft 完成所有命令
-	// 在向 raft log 中提交日志时（PutAppend & Get），需继续读 applyCh 中的命令，注意死锁
-
-	// You may need initialization code here.
-
+	DPrintf("reading snapshot ...")
+	kv.ApplySnapshot(kv.persister.ReadSnapshot())
+	go kv.WaitApplyCh()
 	return kv
 }
