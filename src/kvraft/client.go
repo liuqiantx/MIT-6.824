@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"sync"
+	"time"
 )
 
 
@@ -21,9 +22,9 @@ import (
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	mu      sync.Mutex
-	clientId  int64
-	leaderId  int
-	requestSeq  int64
+	clerkId  int64
+	requestSeq  int64 // 请求的序列号
+	isLeader  []bool
 }
 
 func nrand() int64 {
@@ -36,10 +37,10 @@ func nrand() int64 {
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
-	ck.clientId = nrand()
-	ck.leaderId = 0
+	ck.clerkId = nrand()
 	ck.requestSeq = 0
-	fmt.Printf("Clerk %v initializing ...", ck.clientId)
+	ck.isLeader = make([]bool, len(ck.servers))
+	fmt.Printf("Clerk %v initializing ...", ck.clerkId)
 	return ck
 }
 
@@ -55,11 +56,62 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 // must match the declared types of the RPC handler function's
 // arguments. and reply must be passed as a pointer.
 //
-func (ck *Clerk) Get(key string) string {
 
-	// args := &GetArgs{}
-	// You will have to modify this function.
-	return ""
+// 重置 isleader 
+func (ck *Clerk) restore() {
+	for i := 0; i < len(ck.isLeader); i++ {
+		ck.isLeader[i] = true
+	}
+}
+
+// 更新请求的序列号
+func (ck *Clerk) addSeq() int64 {
+	ck.mu.Lock()
+	defer ck.mu.Unlock()
+	ck.requestSeq++
+	return ck.requestSeq
+}
+
+func (ck *Clerk) Get(key string) string {
+	args := GetArgs{
+		Key: key,
+		MsgId: ck.addSeq(),
+		ClerkId:  ck.clerkId,
+	}
+	for {
+		ok := false
+		res := ""
+		for i, _ := range ck.servers {
+			if !ck.isLeader[i] {
+				continue
+			}
+			go func(i int) {
+				server := ck.servers[i]
+				reply := GetReply{}
+				ok2 := server.Call("KVServer.Get", &args, &reply)
+				if ok2 {
+					DPrintf("get value of %v ,value is %v ...\n", args.Key, reply)
+				} else {
+					DPrintf("have not get value of %v ...\n", args.Key)
+				}
+				ck.mu.Lock()
+				defer ck.mu.Unlock()
+				if ok2 && reply.Err == "" {
+					res = reply.Value
+					ok = true
+				} else if reply.Err == ErrWrongLeader {
+					ck.isLeader[i] = false
+				}
+			}(i)
+		}
+		time.Sleep(ClerkRequestTimeout)
+		ck.mu.Lock()
+		defer ck.mu.Unlock()
+		if ok {
+			return res
+		}
+		ck.restore()
+	}
 }
 
 //
@@ -73,7 +125,40 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 //
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	// You will have to modify this function.
+	args := PutAppendArgs{
+		Op: op,
+		Key: key,
+		Value: value,
+		MsgId: ck.requestSeq,
+		ClerkId: ck.clerkId,
+	}
+	for {
+		ok := false
+		for i, _ := range ck.servers{
+			if !ck.isLeader[i] {
+				continue
+			}
+			go func(i int) {
+				server := ck.servers[i]
+				reply := PutAppendReply{}
+				ok2 := server.Call("KVServer.PutAppend", &args, &reply)
+				ck.mu.Lock()
+				defer ck.mu.Unlock()
+				if ok2 && reply.Err == "" {
+					ok = true
+				} else if reply.Err == ErrWrongLeader {
+					ck.isLeader[i] = false
+				}
+			}(i)
+		}
+		time.Sleep(ClerkRequestTimeout)
+		ck.mu.Lock()
+		defer ck.mu.Unlock()
+		if ok {
+			return
+		}
+		ck.restore()
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {
@@ -83,6 +168,3 @@ func (ck *Clerk) Put(key string, value string) {
 func (ck *Clerk) Append(key string, value string) {
 	ck.PutAppend(key, value, "Append")
 }
-
-// clerk 注意 server 返回的索引上是否存在另一个请求/raft schema 已经更改，此时，clerk 将发送请求到其他服务器
-// 直到找到新的 leader

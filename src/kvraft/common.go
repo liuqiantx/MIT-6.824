@@ -4,7 +4,6 @@ import "time"
 
 const (
 	OK             = "OK"
-	ErrNoKey       = "ErrNoKey"
 	ErrWrongLeader = "ErrWrongLeader"
 	ErrTimeout     = "ErrTimeOut"
 
@@ -13,14 +12,6 @@ const (
 )
 
 type Err string
-
-type RaftKVCommand struct {
-	Op    string
-	Key   string
-	Value string
-	ClerkId    int64
-	MsgId int64
-}
 
 // Put or Append
 type PutAppendArgs struct {
