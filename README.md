@@ -36,17 +36,29 @@
     - [x] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
     - [x] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
     - [x] Frangipani: A Scalable Distributed File System
-    - [ ] Spanner: Google’s Globally-Distributed Database
+    - [x] Spanner: Google’s Globally-Distributed Database
     - [ ] No compromises: distributed transactions with consistency, availability, and performance
-  - [ ] lectures
+  - [x] lectures
     - [x] lec_10 Cloud Replicated DB
     - [x] lec_11 Cache Consistency:
     - [x] lec_12 Distributed Transactions,
-    - [ ] lec_13 Spanner
-    - [ ] lec_14 Optimistic Concurrency Contro
-  - [ ] lab_3 task
-    - [ ] lab_3a task
-    - [ ] lab_3b task
-  - [ ] exams
+    - [x] lec_13 Spanner
+    - [x] lec_14 Optimistic Concurrency Contro
+  - [x] lab_3 task
+    - [x] lab_3a task
+    - [x] lab_3b task
+  - [ ] exams -> 问题较多，需要重新复习后再继续，下一步任务为前面几个月的复习
     - [ ] 2020 Q1 & Q2
-- [ ] Sharded KV
+- [ ] 年底总结 截止日期：2021.2.25
+  - [ ] 所有看过的论文结合课程总结成单独的文档.
+    - [ ] MapReduce: Simplified Data Processing on Large Clusters
+    - [ ] The Google File System
+    - [ ] The Design of a Practical System for Fault-Tolerant Virtual Machines
+    - [ ] In Search of an Understandable Consensus Algorithm (Extended Version)
+    - [ ] ZooKeeper: Wait-free coordination for Internet-scale systems
+    - [ ] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
+    - [ ] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
+    - [ ] Frangipani: A Scalable Distributed File System
+    - [ ] Spanner: Google’s Globally-Distributed Database
+    - [ ] No compromises: distributed transactions with consistency, availability, and performance
+  -

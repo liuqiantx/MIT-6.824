@@ -6,6 +6,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"fmt"
 
 	"../labgob"
 	"../labrpc"
@@ -53,6 +54,10 @@ type Raft struct {
 	// 所有 server 都容易丢失的
 	commitIndex int // 最近的一次已提交的日志的索引
 	lastApplied int // 最近一次已应用的日志的索引
+
+	// Lab 3b
+	offset   int // 实际日志索引为 offset + index
+	discardCh    chan bool
 }
 
 type LogEntry struct {
@@ -144,6 +149,57 @@ func (rf *Raft) Kill() {
 func (rf *Raft) killed() bool {
 	z := atomic.LoadInt32(&rf.dead)
 	return z == 1
+}
+
+//
+// 关于 snapshot 
+//
+// Lab 3B
+type InstallSnapshotArgs struct {
+	Term    int
+	LeaderId    int
+	State    []byte
+	Snapshot []byte
+} 
+
+type InstallSnapshotReply struct {
+	Term   int
+}
+
+// 丢弃先前的日志，索引从新开始
+// serveridx -> server log index, raftidx -> raft log index
+func (rf *Raft) DiscardPreviousLog(serveridx int, snapshot []byte) {
+	if serveridx == -1 {
+		rf.discardCh <- false
+		return
+	}
+	fmt.Printf("%v discard log before %v\n", rf.me, serveridx)
+	raftidx := serveridx - rf.offset
+	if raftidx < 1 {
+		fmt.Printf("%v log index < 1 \n", rf.me)
+		return
+	}
+	if raftidx <= len(rf.logs) {
+		rf.logs = rf.logs[raftidx - 1: ]
+	} else {
+		panic("discard wrong")
+	}
+	rf.offset += raftidx - 1
+
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.offset)
+	nLog := len(rf.logs)
+	e.Encode(nLog)
+	for i := 0; i < nLog; i++ {
+		entry := rf.logs[i]
+		e.Encode(entry)
+	}
+	state := w.Bytes()
+	rf.persister.SaveStateAndSnapshot(state, snapshot)
+	rf.discardCh <- true
 }
 
 //
