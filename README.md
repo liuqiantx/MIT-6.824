@@ -51,10 +51,10 @@
     - [ ] 2020 Q1 & Q2
 - [ ] 年底总结 截止日期：2021.2.25
   - [ ] 所有看过的论文结合课程总结成单独的文档.
-    - [ ] MapReduce: Simplified Data Processing on Large Clusters
+    - [x] MapReduce: Simplified Data Processing on Large Clusters
     - [ ] The Google File System
     - [ ] The Design of a Practical System for Fault-Tolerant Virtual Machines
-    - [ ] In Search of an Understandable Consensus Algorithm (Extended Version)
+    - [x] In Search of an Understandable Consensus Algorithm (Extended Version)
     - [ ] ZooKeeper: Wait-free coordination for Internet-scale systems
     - [ ] Object Storage on CRAQ ( High-throughput chain replication for read-mostly workloads)
     - [ ] Amazon Aurora: Design Considerations for High Throughput Cloud-Native Relational Databases
